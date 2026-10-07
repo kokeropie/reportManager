@@ -1,6 +1,7 @@
 'use strict';
 const sql = require('mssql');
 const { migrate } = require('./migrations');
+const { mssqlConnectionConfig } = require('../mssqlTarget');
 
 // Thin wrapper over an mssql pool. Parameters are always bound, never concatenated.
 function inferType(v) {
@@ -13,12 +14,10 @@ function inferType(v) {
 
 async function createDb(appDb) {
   const pool = new sql.ConnectionPool({
-    server: appDb.server,
-    port: appDb.port,
+    ...mssqlConnectionConfig(appDb.server, appDb.port, appDb.trustServerCertificate),
     database: appDb.database,
     user: appDb.user,
     password: appDb.password,
-    options: { encrypt: true, trustServerCertificate: appDb.trustServerCertificate },
     pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
     connectionTimeout: 15000,
     requestTimeout: 30000,

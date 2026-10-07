@@ -2,6 +2,7 @@
 // One pooled client per report connection (FR-28), so many users share a few DB sessions.
 const mssql = require('mssql');
 const mysql = require('mysql2/promise');
+const { mssqlConnectionConfig } = require('../mssqlTarget');
 
 function createPools({ poolSize = 10, queryTimeoutMs = 120000 } = {}) {
   const entries = new Map(); // connection id -> { key, pool, engine }
@@ -9,8 +10,8 @@ function createPools({ poolSize = 10, queryTimeoutMs = 120000 } = {}) {
   async function build(c) {
     if (c.type === 'mssql') {
       const pool = new mssql.ConnectionPool({
-        server: c.host, port: c.port, database: c.database, user: c.username, password: c.password,
-        options: { encrypt: true, trustServerCertificate: !!c.trustServerCert },
+        ...mssqlConnectionConfig(c.host, c.port, c.trustServerCert),
+        database: c.database, user: c.username, password: c.password,
         pool: { max: poolSize, min: 0, idleTimeoutMillis: 60000 },
         connectionTimeout: 15000,
         requestTimeout: queryTimeoutMs,

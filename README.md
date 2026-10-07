@@ -13,6 +13,10 @@ It has been tested against all 19 files in `sampleReport/` for parsing, expressi
 
 ## Setup
 
+**Easiest: the setup page.** Run `npm start` with no database settings in `.env` (or run `node server.js --setup` at any time to reconfigure). The server prints `SETUP MODE`, a URL and a one-time **setup code**. Open the URL, enter the code, the SQL Server (`host` or `host\instance`), the login and password, press **Test connection**, then **Save and start**. It creates the database if the login may, writes `.env` with generated secrets, creates the first admin and starts the app, all without a restart. The code is needed because anyone who can reach the port could otherwise reconfigure the server; on the Windows service it is in `logs\out.log`. It never changes an existing `ENCRYPTION_KEY`.
+
+**Or by hand:**
+
 1. In SQL Server, create an empty database and a login that can create tables in it:
    ```sql
    CREATE DATABASE ReportServer;

@@ -38,6 +38,6 @@ test('user input checks', () => {
 
 test('config validation flags missing secrets', () => {
   assert.ok(validate(load({})).length >= 3);
-  const ok = load({ SESSION_SECRET: 'x'.repeat(40), ENCRYPTION_KEY: 'a'.repeat(64), APP_DB_USER: 'sa' });
+  const ok = load({ SESSION_SECRET: 'x'.repeat(40), ENCRYPTION_KEY: 'a'.repeat(64), APP_DB_USER: 'sa', APP_DB_PASSWORD: 'x' });
   assert.deepStrictEqual(validate(ok), []);
 });

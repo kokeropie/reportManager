@@ -1,6 +1,17 @@
 'use strict';
 const path = require('path');
-require('dotenv').config();
+const fs = require('fs');
+const dotenv = require('dotenv');
+
+const envPath = path.join(__dirname, '..', '.env');
+dotenv.config({ path: envPath });
+
+// Values as they are in .env right now (used after setup rewrote it), laid over the process environment.
+function freshEnv() {
+  let file = {};
+  try { file = dotenv.parse(fs.readFileSync(envPath)); } catch (e) { /* no .env */ }
+  return Object.assign({}, process.env, file);
+}
 
 function bool(v, def) {
   if (v === undefined || v === '') return def;
@@ -41,8 +52,9 @@ function validate(cfg) {
   if (cfg.sessionSecret.length < 32) errors.push('SESSION_SECRET must be at least 32 characters');
   if (!/^[0-9a-fA-F]{64}$/.test(cfg.encryptionKey)) errors.push('ENCRYPTION_KEY must be 64 hex characters');
   if (!cfg.appDb.user) errors.push('APP_DB_USER is required');
+  if (!cfg.appDb.password) errors.push('APP_DB_PASSWORD is required');
   if (!(cfg.sessionHours > 0)) errors.push('SESSION_HOURS must be a positive number');
   return errors;
 }
 
-module.exports = { load, validate };
+module.exports = { load, validate, envPath, freshEnv };

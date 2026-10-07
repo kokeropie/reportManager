@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Setup - Report Server</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <main style="max-width:640px">
+    <div class="card">
+      <h1>Report Server setup</h1>
+      <p class="muted">Connect the app to the SQL Server where it keeps its own data (users, folders, report list). This page only exists until setup is finished.</p>
+      <form id="form" class="grid" autocomplete="off">
+        <label style="grid-column:1/-1">Setup code
+          <input name="code" required placeholder="XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+          <span class="muted">Printed in the console where the server was started (or in logs\out.log on the Windows server).</span>
+        </label>
+        <label style="grid-column:1/-1">SQL Server host
+          <input name="server" required placeholder="10.0.0.5  or  10.0.0.5\INSTANCE">
+        </label>
+        <label>Port (empty = default or instance)<input name="port" type="number" min="1" max="65535" placeholder="1433"></label>
+        <label>Database name<input name="database" value="ReportServer" required></label>
+        <label>Login<input name="user" required autocomplete="off"></label>
+        <label>Password<input name="password" type="password" required autocomplete="new-password"></label>
+        <label class="check" style="grid-column:1/-1"><input type="checkbox" name="trustCert" checked> Trust the server certificate (needed for self-signed certificates)</label>
+        <label class="check" style="grid-column:1/-1"><input type="checkbox" name="createDb" checked> Create the database if it does not exist (the login must be allowed to create databases)</label>
+        <div id="adminBox" style="grid-column:1/-1" class="grid">
+          <label>First admin username<input name="adminUsername" value="admin" autocomplete="off"></label>
+          <label>First admin password (min 8)<input name="adminPassword" type="password" autocomplete="new-password"></label>
+          <span class="muted" style="grid-column:1/-1">Needed when the database has no users yet. Ignored if it already has some.</span>
+        </div>
+        <label id="keyBox" style="grid-column:1/-1" hidden>Encryption key (only when reconnecting to a database that already has saved connections)
+          <input name="encryptionKey" placeholder="64 hex characters" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="row" style="grid-column:1/-1">
+          <button type="button" id="test">Test connection</button>
+          <button type="submit" class="primary" id="save">Save and start</button>
+        </div>
+        <div id="msg" class="msg" role="status" style="grid-column:1/-1"></div>
+      </form>
+    </div>
+  </main>
+  <script type="module" src="/js/setup.js"></script>
+</body>
+</html>

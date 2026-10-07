@@ -1,6 +1,7 @@
 'use strict';
 const mssql = require('mssql');
 const mysql = require('mysql2/promise');
+const { mssqlConnectionConfig } = require('../mssqlTarget');
 
 const TIMEOUT_MS = 10000;
 
@@ -10,14 +11,12 @@ async function testConnection(c) {
   try {
     if (c.type === 'mssql') {
       const pool = new mssql.ConnectionPool({
-        server: c.host,
-        port: c.port,
+        ...mssqlConnectionConfig(c.host, c.port, c.trustServerCert),
         database: c.database,
         user: c.username,
         password: c.password,
         connectionTimeout: TIMEOUT_MS,
         requestTimeout: TIMEOUT_MS,
-        options: { encrypt: true, trustServerCertificate: !!c.trustServerCert },
       });
       await pool.connect();
       try { await pool.request().query('SELECT 1 AS ok'); } finally { await pool.close(); }
