@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Report Server: first run checklist</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font: 11px/1.35 Arial, Helvetica, sans-serif; color: #000; background: #fff; margin: 0; padding: 12mm; }
+  h1 { font-size: 16px; margin: 0 0 2px; }
+  .sub { color: #444; margin-bottom: 8px; }
+  .cols { columns: 2; column-gap: 14px; }
+  section { break-inside: avoid; margin-bottom: 8px; }
+  h2 { font-size: 12px; margin: 0 0 3px; padding-bottom: 2px; border-bottom: 1.5px solid #000; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { position: relative; padding: 1px 0 1px 17px; }
+  li::before { content: ""; position: absolute; left: 0; top: 3px; width: 10px; height: 10px; border: 1.3px solid #000; }
+  .note { font-size: 10px; color: #333; padding-left: 17px; }
+  .warn { font-weight: bold; }
+  .box { border: 1px solid #000; padding: 4px 6px; margin-top: 6px; break-inside: avoid; }
+  .line { display: inline-block; border-bottom: 1px solid #000; min-width: 120px; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+<h1>Report Server: first run on the server</h1>
+<div class="sub">Server: <span class="line"></span> &nbsp; Date: <span class="line" style="min-width:80px"></span> &nbsp; Done by: <span class="line"></span></div>
+
+<div class="cols">
+<section>
+  <h2>1. Before you start</h2>
+  <ul>
+    <li>Release zip copied to the server (report-server-0.2.0)</li>
+    <li>SQL Server host, port and a login that can create a database</li>
+    <li><code>node -v</code> shows Node 16 (64-bit)</li>
+    <li>Windows time zone is Jakarta (schedules use it)</li>
+    <li>SQL Server allows TCP/IP and SQL logins</li>
+    <li>Unzipped to <code>C:\apps\report-server</code></li>
+  </ul>
+</section>
+
+<section>
+  <h2>2. Setup script (elevated PowerShell)</h2>
+  <ul>
+    <li><code>powershell -ExecutionPolicy Bypass -File .\deploy\setup-windows.ps1</code></li>
+    <li>Answered the questions; output folder blank = <code>output\</code></li>
+    <li class="warn">ENCRYPTION_KEY from .env backed up somewhere safe</li>
+    <li>Database exists (script or <code>create-database.sql</code>)</li>
+    <li>Health check passed; ADMIN_PASSWORD gone from .env</li>
+    <li>If it failed: read <code>logs\error.log</code></li>
+  </ul>
+</section>
+
+<section>
+  <h2>3. Sign in and connections</h2>
+  <ul>
+    <li>Opened http://server:3000 from <b>another PC</b></li>
+    <li>Signed in as admin</li>
+    <li>Connection PTES_SVRINS02 added, <b>Test</b> OK</li>
+    <li>MySQL connection (dev_kenji) added, <b>Test</b> OK</li>
+  </ul>
+</section>
+
+<section>
+  <h2>4. Upload and run reports</h2>
+  <ul>
+    <li>Invoice List - PJTI (autoDate) uploaded; connection attached itself</li>
+    <li>Dates pre-filled by the RDL default (H-1)</li>
+    <li><b>Rows and totals match SSRS</b> for the same dates</li>
+    <li>Corporate Billing_All v2 runs (UDF calls, expressions)</li>
+    <li>Bank Transaction List: Parameter1/2 start as yesterday / today</li>
+    <li>CSV and Excel open fine; real dates and numbers</li>
+    <li>One MySQL report runs (Billing List - Arjuna)</li>
+  </ul>
+</section>
+
+<section>
+  <h2>5. Users</h2>
+  <ul>
+    <li>Viewer added with a temporary password</li>
+    <li>Single session per user is on</li>
+    <li>Viewer forced to choose own password at first sign-in</li>
+    <li>Viewer sees no Connection folder, Users, Audit or upload</li>
+  </ul>
+</section>
+
+<section>
+  <h2>6. Scheduling</h2>
+  <ul>
+    <li>Viewer subscribed: daily, ~3 min from now, XLSX, folder Test/Daily</li>
+    <li>Status OK; file in <b>My files</b>; dates yesterday / today</li>
+    <li>File on disk: <code>output\&lt;id&gt;\Test\Daily\</code></li>
+    <li><b>Run now</b>, Pause and Resume work</li>
+    <li>Admin does <b>not</b> see the viewer's files</li>
+    <li>Test subscription deleted</li>
+  </ul>
+</section>
+
+<section>
+  <h2>7. Restart and wrap-up</h2>
+  <ul>
+    <li>Server restarted; service came back by itself</li>
+    <li>A job due after the restart still ran</li>
+    <li><code>/healthz</code> answers {"ok":true}</li>
+    <li>Audit log shows runs, exports, sign-ins</li>
+    <li>Backups planned: app DB, reports\, output\, .env</li>
+    <li>HTTPS planned (IIS ARR; TRUST_PROXY, COOKIE_SECURE)</li>
+  </ul>
+</section>
+</div>
+
+<div class="box">
+  <b>If something fails:</b> stop at that step and note it. &nbsp;
+  Wrong totals: report + parameters. Query rejected: the keyword in the message. Timeout: raise QUERY_TIMEOUT_SECONDS. Network share output: service needs <code>-ServiceUser</code>.
+  <div style="margin-top:6px">Notes: <span class="line" style="width:88%"></span></div>
+  <div style="margin-top:8px"><span class="line" style="width:100%"></span></div>
+</div>
+</body>
+</html>
