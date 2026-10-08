@@ -45,7 +45,7 @@ if (-not $isAdmin) { throw 'Run this from an elevated (Run as administrator) Pow
 
 # ---- 1. Node ----
 Step '1/6 Checking Node.js'
-$node = Get-Command node.exe -ErrorAction SilentlyContinue
+$node = @(Get-Command node.exe -ErrorAction SilentlyContinue)[0]
 if (-not $node) {
   Write-Host 'Node.js was not found.' -ForegroundColor Yellow
   Write-Host 'Install Node.js 16 (Windows 64-bit .msi) from https://nodejs.org/dist/latest-v16.x/ and run this script again.'
@@ -122,7 +122,7 @@ if (Test-Path $envPath) {
 Step '5/6 Windows service'
 if (-not $NssmPath) {
   foreach ($c in @('C:\tools\nssm\nssm.exe', (Join-Path $AppDir 'deploy\nssm.exe'))) { if (Test-Path $c) { $NssmPath = $c; break } }
-  if (-not $NssmPath) { $g = Get-Command nssm.exe -ErrorAction SilentlyContinue; if ($g) { $NssmPath = $g.Source } }
+  if (-not $NssmPath) { $g = Get-Command nssm.exe -ErrorAction SilentlyContinue; if ($g) { $NssmPath = [string]@($g)[0].Source } }
 }
 if (-not $NssmPath) {
   $dl = Ask 'NSSM (the service wrapper) was not found. Download it from nssm.cc now? (y/n)' 'y'
@@ -155,7 +155,7 @@ if (Get-Service -Name 'ReportServer' -ErrorAction SilentlyContinue) {
   Write-Host 'The ReportServer service already exists. Restarting it.'
   & $NssmPath restart ReportServer | Out-Null
 } else {
-  & (Join-Path $AppDir 'deploy\install-service.ps1') -NssmPath $NssmPath -AppDir $AppDir -NodePath $node.Source -Port $Port -SqlServerService $sqlSvc
+  & (Join-Path $AppDir 'deploy\install-service.ps1') -NssmPath $NssmPath -AppDir $AppDir -NodePath ([string]$node.Source) -Port $Port -SqlServerService $sqlSvc
 }
 
 # ---- 6. Health check and first-admin cleanup ----

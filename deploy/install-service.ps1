@@ -17,7 +17,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $NssmPath)) { throw "nssm.exe not found at $NssmPath" }
-if (-not $NodePath) { $NodePath = (Get-Command node.exe -ErrorAction Stop).Source }
+if (-not $NodePath) { $NodePath = [string]@(Get-Command node.exe -ErrorAction Stop)[0].Source }
+$NssmPath = ([string]$NssmPath).Trim()
+$NodePath = ([string]$NodePath).Trim()
+if (-not $NodePath -or -not (Test-Path -LiteralPath $NodePath)) { throw "node.exe not found (got '$NodePath'). Pass -NodePath C:\path\to\node.exe" }
+Write-Host "NSSM: $NssmPath"; Write-Host "Node: $NodePath"; Write-Host "App:  $AppDir"
 if (-not (Test-Path (Join-Path $AppDir '.env'))) { throw "No .env in $AppDir. Copy .env.example to .env and fill it in first." }
 if (-not (Test-Path (Join-Path $AppDir 'node_modules'))) { throw "No node_modules in $AppDir. Run: npm ci --omit=dev" }
 
