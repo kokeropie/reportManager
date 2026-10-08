@@ -13,6 +13,12 @@ function requireAdmin(req, res, next) {
   res.status(404).json({ error: 'Not found' });
 }
 
+// A temporary password (set by an admin) only gets you to the change-password screen.
+function requirePasswordChange(req, res, next) {
+  if (req.session && req.session.mustChange) return res.status(403).json({ error: 'Choose your own password first', mustChange: true });
+  next();
+}
+
 function safeEqual(a, b) {
   const ab = Buffer.from(String(a || ''));
   const bb = Buffer.from(String(b || ''));
@@ -31,4 +37,4 @@ function newCsrfToken() {
   return crypto.randomBytes(24).toString('hex');
 }
 
-module.exports = { requireAuth, requireAdmin, csrfProtect, newCsrfToken, safeEqual };
+module.exports = { requirePasswordChange, requireAuth, requireAdmin, csrfProtect, newCsrfToken, safeEqual };

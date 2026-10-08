@@ -6,7 +6,7 @@ const session = require('express-session');
 const SqlSessionStore = require('./auth/sessionStore');
 const { createUserService } = require('./auth/users');
 const { createAuthRouter, createUsersRouter } = require('./auth/routes');
-const { requireAuth, requireAdmin, csrfProtect } = require('./auth/middleware');
+const { requireAuth, requireAdmin, csrfProtect, requirePasswordChange } = require('./auth/middleware');
 const { createConnectionService } = require('./connections/service');
 const { createConnectionsRouter } = require('./connections/routes');
 const { createFoldersRouter } = require('./folders/routes');
@@ -15,6 +15,9 @@ const { createRunService } = require('./reports/runService');
 const { createReportsRouter } = require('./reports/routes');
 const { createAuditService } = require('./audit/service');
 const { createAuditRouter } = require('./audit/routes');
+const { createSubscriptionService } = require('./subscriptions/service');
+const { createSubscriptionsRouter } = require('./subscriptions/routes');
+const { createScheduler } = require('./subscriptions/scheduler');
 const { createPools, execute } = require('./runner/pools');
 const { Limiter } = require('./runner/limiter');
 const { RunStore } = require('./runner/runStore');
@@ -66,6 +69,9 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
     limiter: new Limiter(config.maxConcurrentRuns), runStore: new RunStore(), cfg: config,
   });
 
+  const scheduler = createScheduler({ db, runs, audit, outputDir: config.outputDir, retentionDays: config.outputRetentionDays });
+  const subs = createSubscriptionService({ db, reports, outputDir: config.outputDir, onChange: () => scheduler.wake() });
+
   // Unauthenticated liveness check for the Windows service / monitoring. Reveals nothing but up/down.
   app.get('/healthz', async (req, res) => {
     try { await db.one('SELECT 1 AS ok'); res.json({ ok: true }); } catch (e) { res.status(503).json({ ok: false }); }
@@ -74,12 +80,13 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   const api = express.Router();
   api.use('/auth', createAuthRouter({ users, store, db, audit }));
   // Everything below needs a session and a CSRF token on writes (FR-3).
-  api.use(requireAuth, csrfProtect);
+  api.use(requireAuth, csrfProtect, requirePasswordChange);
   api.use('/users', createUsersRouter({ users, store }));
   api.use('/connections', createConnectionsRouter({ connections }));
   api.use('/folders', createFoldersRouter({ db, reports }));
   api.use('/reports', createReportsRouter({ reports, runs, cfg: config, audit }));
 
+  api.use('/subscriptions', createSubscriptionsRouter({ subs, audit }));
   api.use('/audit', createAuditRouter({ audit }));
 
   // FR-2a: admin switch for "single session per user".
@@ -112,7 +119,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
     res.status(status).json(body);
   });
 
-  return { app, users, store, pools };
+  return { app, users, store, pools, scheduler };
 }
 
 module.exports = { createApp };

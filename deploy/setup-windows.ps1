@@ -95,10 +95,12 @@ if (Test-Path $envPath) {
     'APP_DB_USER' = (EnvQuote $dbUser); 'APP_DB_PASSWORD' = (EnvQuote $dbPass); 'APP_DB_TRUST_CERT' = $trust
     'ADMIN_USERNAME' = $adminUser; 'ADMIN_PASSWORD' = (EnvQuote $adminPass)
   }
+  $outDir = Ask 'Folder for saved scheduled reports (blank = the "output" folder inside the app)' ''
   $out = foreach ($line in $tpl) {
     $m = [regex]::Match($line, '^([A-Z_]+)=')
     if ($m.Success -and $map.ContainsKey($m.Groups[1].Value)) { "$($m.Groups[1].Value)=$($map[$m.Groups[1].Value])" } else { $line }
   }
+  if ($outDir) { $out = @($out) + "OUTPUT_DIR=$(EnvQuote $outDir)" }
   WriteUtf8 $envPath (($out -join "`r`n") + "`r`n")
   $createdEnv = $true
   Write-Host ".env written. BACK UP the ENCRYPTION_KEY line somewhere safe: without it, stored connection passwords cannot be read."
@@ -167,6 +169,7 @@ for ($i = 0; $i -lt 15; $i++) {
 }
 if ($ok) {
   Write-Host "Report Server is up: http://$($env:COMPUTERNAME):$Port" -ForegroundColor Green
+  Write-Host "Scheduled reports run on this server's clock: $([TimeZoneInfo]::Local.DisplayName). Fix the Windows time zone if that is not your local time." -ForegroundColor Yellow
   if ($createdEnv) {
     $lines = Get-Content $envPath | ForEach-Object { if ($_ -match '^ADMIN_PASSWORD=') { 'ADMIN_PASSWORD=' } else { $_ } }
     WriteUtf8 $envPath (($lines -join "`r`n") + "`r`n")

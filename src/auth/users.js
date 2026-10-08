@@ -20,7 +20,7 @@ function checkUsername(name) {
 }
 
 function publicUser(r) {
-  return { id: r.id, username: r.username, role: r.role, disabled: !!r.disabled, createdAt: r.created_at };
+  return { id: r.id, username: r.username, role: r.role, disabled: !!r.disabled, mustChangePassword: !!r.must_change_password, createdAt: r.created_at };
 }
 
 function createUserService(db) {
@@ -32,21 +32,23 @@ function createUserService(db) {
       return user;
     },
     async list() {
-      return (await db.query('SELECT id, username, role, disabled, created_at FROM users ORDER BY username')).map(publicUser);
+      return (await db.query('SELECT id, username, role, disabled, must_change_password, created_at FROM users ORDER BY username')).map(publicUser);
     },
     async get(id) {
-      return db.one('SELECT id, username, role, disabled, created_at FROM users WHERE id = @id', { id });
+      return db.one('SELECT id, username, role, disabled, must_change_password, created_at FROM users WHERE id = @id', { id });
     },
-    async create({ username, password, role }) {
+    // mustChange: an admin-set password is temporary; the person picks their own at first sign-in.
+    async create({ username, password, role, mustChange = false }) {
       const err = checkUsername(username) || checkPassword(password) || (ROLES.includes(role) ? null : 'Role must be admin or viewer');
       if (err) throw Object.assign(new Error(err), { status: 400 });
       const exists = await db.one('SELECT id FROM users WHERE username = @username', { username });
       if (exists) throw Object.assign(new Error('Username already exists'), { status: 409 });
       const hash = await bcrypt.hash(password, 10);
       const row = await db.one(
-        `INSERT INTO users (username, password_hash, role) OUTPUT INSERTED.id, INSERTED.username, INSERTED.role, INSERTED.disabled, INSERTED.created_at
-         VALUES (@username, @hash, @role)`,
-        { username, hash, role }
+        `INSERT INTO users (username, password_hash, role, must_change_password)
+         OUTPUT INSERTED.id, INSERTED.username, INSERTED.role, INSERTED.disabled, INSERTED.must_change_password, INSERTED.created_at
+         VALUES (@username, @hash, @role, @mustChange)`,
+        { username, hash, role, mustChange: !!mustChange }
       );
       return publicUser(row);
     },
@@ -57,10 +59,18 @@ function createUserService(db) {
         { id, role: role === undefined ? null : role, disabled: disabled === undefined ? null : !!disabled }
       );
     },
-    async setPassword(id, password) {
+    async setPassword(id, password, { mustChange = false } = {}) {
       const err = checkPassword(password);
       if (err) throw Object.assign(new Error(err), { status: 400 });
-      await db.query('UPDATE users SET password_hash = @hash WHERE id = @id', { id, hash: await bcrypt.hash(password, 10) });
+      await db.query('UPDATE users SET password_hash = @hash, must_change_password = @mustChange WHERE id = @id',
+        { id, hash: await bcrypt.hash(password, 10), mustChange: !!mustChange });
+    },
+    // Self-service: needs the current password, and the new one must differ.
+    async changeOwnPassword(id, current, password) {
+      const row = await db.one('SELECT password_hash FROM users WHERE id = @id', { id });
+      if (!row || !(await bcrypt.compare(String(current || ''), row.password_hash))) throw Object.assign(new Error('Current password is wrong'), { status: 400 });
+      if (current === password) throw Object.assign(new Error('Choose a password different from the current one'), { status: 400 });
+      await this.setPassword(id, password, { mustChange: false });
     },
     async countActiveAdmins() {
       return (await db.one(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0`)).n;

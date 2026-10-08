@@ -82,6 +82,43 @@ const MIGRATIONS = [
   CREATE INDEX ix_audit_at ON audit_log(logged_at DESC);
   CREATE INDEX ix_audit_user ON audit_log(username);
   `,
+  // Phase 4: own accounts (forced password change) and scheduled report subscriptions
+  `
+  ALTER TABLE users ADD must_change_password BIT NOT NULL CONSTRAINT df_users_mcp DEFAULT 0;
+  CREATE TABLE subscriptions (
+    id          INT IDENTITY(1,1) PRIMARY KEY,
+    user_id     INT NOT NULL REFERENCES users(id),
+    report_id   INT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    name        NVARCHAR(200) NOT NULL,
+    params      NVARCHAR(4000) NOT NULL CONSTRAINT df_subs_params DEFAULT '{}',
+    format      NVARCHAR(4) NOT NULL CHECK (format IN ('csv','xlsx')),
+    schedule    NVARCHAR(500) NOT NULL,
+    folder      NVARCHAR(200) NOT NULL CONSTRAINT df_subs_folder DEFAULT '',
+    enabled     BIT NOT NULL CONSTRAINT df_subs_enabled DEFAULT 1,
+    next_run_at DATETIME2 NULL,
+    last_run_at DATETIME2 NULL,
+    last_status NVARCHAR(10) NULL,
+    last_error  NVARCHAR(500) NULL,
+    failures    INT NOT NULL CONSTRAINT df_subs_failures DEFAULT 0,
+    created_at  DATETIME2 NOT NULL CONSTRAINT df_subs_created DEFAULT SYSUTCDATETIME()
+  );
+  CREATE INDEX ix_subs_due ON subscriptions(enabled, next_run_at);
+  CREATE INDEX ix_subs_user ON subscriptions(user_id);
+  CREATE TABLE subscription_runs (
+    id              BIGINT IDENTITY(1,1) PRIMARY KEY,
+    subscription_id INT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+    user_id         INT NOT NULL,
+    started_at      DATETIME2 NOT NULL,
+    finished_at     DATETIME2 NULL,
+    status          NVARCHAR(10) NOT NULL,
+    row_count       INT NULL,
+    file_name       NVARCHAR(400) NULL,
+    file_size       BIGINT NULL,
+    error           NVARCHAR(500) NULL
+  );
+  CREATE INDEX ix_subruns_sub ON subscription_runs(subscription_id, id DESC);
+  CREATE INDEX ix_subruns_user ON subscription_runs(user_id, id DESC);
+  `,
 ];
 
 const DEFAULT_FOLDERS = [
@@ -110,7 +147,7 @@ async function migrate(db) {
     }
   }
   const s = await db.one(`SELECT value FROM settings WHERE name = 'single_session'`);
-  if (!s) await db.query(`INSERT INTO settings (name, value) VALUES ('single_session', 'false')`);
+  if (!s) await db.query(`INSERT INTO settings (name, value) VALUES ('single_session', 'true')`);
 }
 
 module.exports = { migrate, MIGRATIONS, DEFAULT_FOLDERS };

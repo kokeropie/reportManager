@@ -72,7 +72,7 @@ async function main() {
     console.error('Fix .env, or run   node server.js --setup   to open the setup page and enter the details in a browser.');
     process.exit(1);
   }
-  const { app, users, pools } = createApp({ db, config });
+  const { app, users, pools, scheduler } = createApp({ db, config });
 
   // First start: create the initial admin (from the setup page, or from .env).
   if ((await users.count()) === 0) {
@@ -87,7 +87,8 @@ async function main() {
   }
 
   const server = app.listen(config.port, () => console.log(`Report server listening on port ${config.port}`));
-  const shutdown = () => server.close(() => Promise.all([pools.closeAll(), db.close()]).finally(() => process.exit(0)));
+  if (config.schedulerEnabled) { scheduler.start(); console.log('Scheduler started'); }
+  const shutdown = () => { scheduler.stop(); server.close(() => Promise.all([pools.closeAll(), db.close()]).finally(() => process.exit(0))); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }

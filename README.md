@@ -41,6 +41,14 @@ Query rules: only a single `SELECT` or `WITH` statement runs. `INSERT`, `UPDATE`
 
 More admins can be added from the **Users** page, or with `npm run create-admin -- <username> <password>`.
 
+## Accounts, scheduled reports and saved files
+
+- **One login per person.** An admin adds users on the **Users** page with a temporary password; the person is made to choose their own at first sign-in (after an admin reset too) and can change it any time from **Change password**. Single session per user is on by default for new installs (toggle on the Users page).
+- **Dates.** A date parameter the RDL gives no default for starts as yesterday (start date) and today (end date). Defaults written in the RDL are kept.
+- **Subscriptions.** On a report page press **Subscribe**: pick daily, certain weekdays, monthly or every N hours (at least 15 minutes), CSV or Excel, and a folder name. Parameters left at their default keep following it (a daily report always gets yesterday and today). Manage them under **My subscriptions** (run now, pause, history, delete).
+- **Saved files.** Results are written to `OUTPUT_DIR\<user id>\<folder>\<name timestamp>.xlsx` and listed under **My files**. Users only see their own. Files and history older than `OUTPUT_RETENTION_DAYS` (30) are deleted.
+- The scheduler lives inside the app, runs on the **server's clock and time zone**, sleeps until the next job is due, runs a job missed during downtime once, and pauses a subscription after 5 failures in a row (the reason shows in My subscriptions).
+
 ## Exports and audit log
 
 - On a report page, **Export CSV** and **Export Excel** run the query again with the same parameters and download the file. CSV is UTF-8 with a BOM, so Excel opens it correctly. XLSX has a bold frozen header row, column widths from the RDL, and real numbers and dates.
@@ -65,6 +73,8 @@ The app has no native modules, so a release zip built on any machine runs on the
    ```
    It asks for the SQL Server details and the first admin login, writes `.env` with freshly generated secrets, optionally creates the database, downloads NSSM if it is missing (or uses `C:\tools\nssm\nssm.exe`), installs the `ReportServer` service (starts automatically, restarts 5 seconds after a crash, logs to `logs\`, opens the firewall port), waits for `/healthz`, and removes the admin password from `.env`.
 5. Open `http://<server-name>:3000` from another computer.
+   - Check the server's **time zone** (scheduled reports use it).
+   - Scheduled results go to `output\` inside the app folder unless you set `OUTPUT_DIR`. For a network share, run the service under an account that can write to it: `.\deploy\install-service.ps1 -NssmPath ... -OutputDir \\server\share\reports -ServiceUser DOMAIN\svc-reports -ServicePassword ...` (LocalSystem cannot sign in to shares).
 6. **Back up `ENCRYPTION_KEY`** from `.env`. Without it the stored connection passwords cannot be decrypted.
 
 To do the steps by hand instead: copy `.env.example` to `.env`, fill it in, test with `node server.js`, then run `deploy\install-service.ps1 -NssmPath <path to nssm.exe>`.
@@ -73,9 +83,9 @@ To do the steps by hand instead: copy `.env.example` to `.env`, fill it in, test
 
 **HTTPS (recommended if the data is sensitive).** Put IIS with URL Rewrite and Application Request Routing in front, or any reverse proxy, forwarding to `http://localhost:3000`. Then set `TRUST_PROXY=true` and `COOKIE_SECURE=true` in `.env` and restart the service. Make sure the proxy sends `X-Forwarded-For` so the audit log records real client IPs.
 
-**Updating.** Stop the service (`nssm stop ReportServer`), unzip the new release over the old folder (the zip contains no `.env`, `reports\` or `logs\`, so those stay), start the service (`nssm start ReportServer`). New database tables are created automatically on start.
+**Updating.** Stop the service (`nssm stop ReportServer`), unzip the new release over the old folder (the zip contains no `.env`, `reports\`, `output\` or `logs\`, so those stay), start the service (`nssm start ReportServer`). New database tables are created automatically on start.
 
-**Backups.** Back up three things: the app database, the `reports\` folder (the uploaded `.rdl` files), and `.env` (especially `ENCRYPTION_KEY`).
+**Backups.** Back up four things: the app database, the `reports\` folder (the uploaded `.rdl` files), `output\` (saved scheduled results, if you care about keeping them), and `.env` (especially `ENCRYPTION_KEY`).
 
 **Removing the service.** `.\deploy\uninstall-service.ps1 -NssmPath C:\tools\nssm\nssm.exe`. This does not delete the app, its data or the database.
 
@@ -96,7 +106,9 @@ To do the steps by hand instead: copy `.env.example` to `.env`, fill it in, test
 5. Run the report, compare rows and totals with SSRS for the same dates.
 6. Export CSV and Excel and open them in Excel.
 7. Open **Audit log** and find your runs.
-8. Install the service and restart the server to confirm it comes back by itself.
+8. As admin add a viewer user: the first sign-in must force a new password.
+9. Subscribe to a report for a few minutes ahead (or press **Run now**), then find the file under **My files** and open it in Excel. Confirm the dates were yesterday and today.
+10. Install the service and restart the server to confirm it comes back by itself.
 
 ## Tests
 

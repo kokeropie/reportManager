@@ -69,6 +69,43 @@ function defaultValues(def) {
     if (v instanceof Date) v = isoDate(v);
     out[p.name] = v === undefined ? null : v;
   }
+  fillDateDefaults(def, out);
+  return out;
+}
+
+// A date parameter the RDL gives no default for: start date = yesterday, end date = today.
+// Names decide first (start/from/begin, end/to/until); otherwise the first two unnamed ones are start then end.
+// Anything the RDL itself defaults, and anything nullable, is left exactly as the RDL says.
+const START_NAME = /start|from|begin|awal|dari/i;
+const END_NAME = /end|until|akhir|sampai|(^|[^a-z])to([^a-z]|$)/i;
+function fillDateDefaults(def, out) {
+  const blank = def.parameters.filter((p) => p.type === 'DateTime' && !p.nullable && (out[p.name] === null || out[p.name] === ''));
+  if (!blank.length) return;
+  const today = wallToday();
+  const yesterday = new Date(today.getTime() - 86400000);
+  const rest = [];
+  for (const p of blank) {
+    const isStart = START_NAME.test(p.name);
+    const isEnd = END_NAME.test(p.name);
+    if (isStart && !isEnd) out[p.name] = isoDate(yesterday);
+    else if (isEnd && !isStart) out[p.name] = isoDate(today);
+    else rest.push(p);
+  }
+  if (rest[0]) out[rest[0].name] = isoDate(yesterday);
+  if (rest[1]) out[rest[1].name] = isoDate(today);
+}
+
+// Fills blank submitted values from the defaults (used by unattended runs, where nobody is there to type).
+function withDefaults(def, submitted) {
+  const defaults = defaultValues(def);
+  const out = { ...(submitted || {}) };
+  const have = new Set(Object.keys(out).filter((k) => out[k] !== undefined && out[k] !== null && out[k] !== '').map((k) => k.toLowerCase()));
+  for (const p of def.parameters) {
+    if (!have.has(p.name.toLowerCase())) {
+      for (const k of Object.keys(out)) if (k.toLowerCase() === p.name.toLowerCase()) delete out[k];
+      if (defaults[p.name] !== null && defaults[p.name] !== undefined) out[p.name] = defaults[p.name];
+    }
+  }
   return out;
 }
 
@@ -206,4 +243,4 @@ function displayOf(cell) {
   return cell.format ? formatValue(cell.value, cell.format) : defaultDisplay(cell.value);
 }
 
-module.exports = { renderGrid, resolveParams, defaultValues, displayOf, isoDate, coerceParam };
+module.exports = { renderGrid, resolveParams, defaultValues, withDefaults, displayOf, isoDate, coerceParam };

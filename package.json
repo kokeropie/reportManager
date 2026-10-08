@@ -1,6 +1,6 @@
 {
   "name": "report-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Lightweight SSRS-style web report server (RDL viewer)",
   "main": "server.js",

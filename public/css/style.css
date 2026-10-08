@@ -47,3 +47,4 @@ table.result tr.groupFooter td, table.result tfoot td { font-weight:700; border-
 .pager { margin:8px 0; }
 pre { white-space:pre-wrap; word-break:break-word; background:var(--bg); padding:8px; border-radius:6px; }
 input[type=search] { min-width:240px; }
+[hidden] { display:none !important; }

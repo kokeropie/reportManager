@@ -18,7 +18,7 @@ export async function renderUsers() {
     } catch (err) { say(box, err.message); }
   } },
     h('label', {}, 'Username', h('input', { name: 'username', required: true })),
-    h('label', {}, 'Password', h('input', { name: 'password', type: 'password', minlength: 8, required: true, autocomplete: 'new-password' })),
+    h('label', {}, 'Temporary password', h('input', { name: 'password', type: 'password', minlength: 8, required: true, autocomplete: 'new-password' })),
     h('label', {}, 'Role', h('select', { name: 'role' }, h('option', { value: 'viewer' }, 'Viewer'), h('option', { value: 'admin' }, 'Admin'))),
     h('label', {}, ' ', h('button', { class: 'primary', type: 'submit' }, 'Add user')));
 
@@ -34,7 +34,7 @@ export async function renderUsers() {
     h('div', { class: 'card' }, h('h2', {}, 'Users'),
       h('table', {}, h('thead', {}, h('tr', {}, ['User', 'Role', 'Status', ''].map((t) => h('th', {}, t)))),
         h('tbody', {}, users.map((u) => h('tr', {},
-          h('td', {}, u.username), h('td', {}, u.role), h('td', {}, u.disabled ? 'Disabled' : 'Active'),
+          h('td', {}, u.username), h('td', {}, u.role), h('td', {}, u.disabled ? 'Disabled' : u.mustChangePassword ? 'Active (must set own password)' : 'Active'),
           h('td', { class: 'actions' },
             h('button', { onclick: act(() => api('PUT', '/users/' + u.id, { disabled: !u.disabled })) }, u.disabled ? 'Enable' : 'Disable'), ' ',
             h('button', { onclick: async () => {

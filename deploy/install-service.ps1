@@ -11,7 +11,10 @@ param(
   [string]$AppDir = (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)),
   [string]$NodePath = '',
   [int]$Port = 3000,
-  [string]$SqlServerService = ''   # set when the app database is on this same machine, so we start after it
+  [string]$SqlServerService = '',  # set when the app database is on this same machine, so we start after it
+  [string]$OutputDir = '',         # where scheduled reports are saved; blank = <AppDir>\output (match OUTPUT_DIR in .env)
+  [string]$ServiceUser = '',       # run the service as this account, e.g. DOMAIN\svc-reports (needed to write to a network share)
+  [string]$ServicePassword = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +33,9 @@ Write-Host "Using Node $nodeVersion at $NodePath"
 
 $logDir = Join-Path $AppDir 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+if (-not $OutputDir) { $OutputDir = Join-Path $AppDir 'output' }
+if ($OutputDir -notlike '\\*') { New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null }
+New-Item -ItemType Directory -Force -Path (Join-Path $AppDir 'reports') | Out-Null
 
 & $NssmPath install $ServiceName $NodePath 'server.js'
 & $NssmPath set $ServiceName AppDirectory $AppDir
@@ -45,6 +51,14 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 & $NssmPath set $ServiceName AppExit Default Restart
 & $NssmPath set $ServiceName AppRestartDelay 5000
 & $NssmPath set $ServiceName AppThrottle 10000
+if ($ServiceUser) {
+  & $NssmPath set $ServiceName ObjectName $ServiceUser $ServicePassword
+  # the account must be able to write logs, uploaded reports and saved results (a network share needs its own permission)
+  foreach ($d in @($logDir, (Join-Path $AppDir 'reports'), $OutputDir)) {
+    if (Test-Path -LiteralPath $d) { & icacls.exe $d /grant "${ServiceUser}:(OI)(CI)M" | Out-Null }
+  }
+  Write-Host "Service will run as $ServiceUser"
+}
 if ($SqlServerService) { & $NssmPath set $ServiceName DependOnService $SqlServerService }
 
 # Allow the web port on the local network

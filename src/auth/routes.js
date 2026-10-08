@@ -42,12 +42,13 @@ function createAuthRouter({ users, store, db, audit }) {
       req.session.userId = user.id;
       req.session.username = user.username;
       req.session.role = user.role;
+      req.session.mustChange = !!user.must_change_password;
       req.session.csrf = newCsrfToken();
       await save(req);
       const s = await db.one(`SELECT value FROM settings WHERE name = 'single_session'`);
       if (s && s.value === 'true') await store.destroyForUser(user.id, req.sessionID);
       await log(req, { action: 'login', userId: user.id, username: user.username });
-      res.json({ username: user.username, role: user.role, csrfToken: req.session.csrf });
+      res.json({ username: user.username, role: user.role, mustChange: req.session.mustChange, csrfToken: req.session.csrf });
     } catch (e) { next(e); }
   });
 
@@ -61,7 +62,20 @@ function createAuthRouter({ users, store, db, audit }) {
   });
 
   r.get('/me', requireAuth, (req, res) => {
-    res.json({ username: req.session.username, role: req.session.role, csrfToken: req.session.csrf });
+    res.json({ username: req.session.username, role: req.session.role, mustChange: !!req.session.mustChange, csrfToken: req.session.csrf });
+  });
+
+  // Everyone has their own account; this is how they pick (and later change) their own password.
+  r.post('/password', requireAuth, csrfProtect, loginLimiter, async (req, res, next) => {
+    try {
+      const { current, password } = req.body || {};
+      await users.changeOwnPassword(req.session.userId, current, password);
+      await store.destroyForUser(req.session.userId, req.sessionID); // other devices must sign in again
+      req.session.mustChange = false;
+      await save(req);
+      await log(req, { action: 'password-change', userId: req.session.userId, username: req.session.username });
+      res.json({ ok: true });
+    } catch (e) { next(e); }
   });
 
   return r;
@@ -74,7 +88,7 @@ function createUsersRouter({ users, store }) {
   r.get('/', async (req, res, next) => { try { res.json(await users.list()); } catch (e) { next(e); } });
 
   r.post('/', async (req, res, next) => {
-    try { res.status(201).json(await users.create(req.body || {})); } catch (e) { next(e); }
+    try { res.status(201).json(await users.create({ ...(req.body || {}), mustChange: true })); } catch (e) { next(e); }
   });
 
   r.put('/:id', async (req, res, next) => {
@@ -98,7 +112,7 @@ function createUsersRouter({ users, store }) {
     try {
       const id = parseInt(req.params.id, 10);
       if (!(await users.get(id))) return res.status(404).json({ error: 'Not found' });
-      await users.setPassword(id, (req.body || {}).password);
+      await users.setPassword(id, (req.body || {}).password, { mustChange: id !== req.session.userId });
       await store.destroyForUser(id, id === req.session.userId ? req.sessionID : null);
       res.json({ ok: true });
     } catch (e) { next(e); }

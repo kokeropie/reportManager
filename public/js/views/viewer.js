@@ -1,4 +1,5 @@
 import { api, download, h } from '../api.js';
+import { scheduleForm } from './subscriptions.js';
 
 const view = document.getElementById('view');
 
@@ -64,7 +65,31 @@ export async function renderReport(me, id) {
     fields.map(({ p, el }) => h('label', { class: p.type === 'Boolean' ? 'check' : '' }, p.type === 'Boolean' ? [el, p.prompt] : [p.prompt, el])),
     h('label', {}, ' ', h('button', { class: 'primary', type: 'submit', id: 'run' }, 'View report')));
   top.append(form, err);
+  top.append(subscribePanel());
   view.append(out);
+
+  // Subscribe: same parameters as the form above. Anything left at its default (like yesterday/today) is not
+  // frozen: it follows the default every time the report runs.
+  function subscribePanel() {
+    const sf = scheduleForm();
+    sf.setName(rep.name);
+    const msg = h('div', { class: 'msg', role: 'status' });
+    const panel = h('form', { class: 'grid', hidden: true, onsubmit: async (e) => {
+      e.preventDefault();
+      const all = collect();
+      const params = {};
+      for (const p of rep.parameters) {
+        const v = all[p.name];
+        const isDefault = p.default !== null && p.default !== undefined && String(v) === String(p.default);
+        if (!isDefault && v !== '' && v !== null && v !== undefined) params[p.name] = v;
+      }
+      try {
+        await api('POST', '/subscriptions', { reportId: id, params, ...sf.read() });
+        msg.textContent = 'Subscribed. See My subscriptions.'; msg.className = 'msg ok'; panel.hidden = true;
+      } catch (e2) { msg.textContent = e2.message + (e2.data && e2.data.details ? ' ' + e2.data.details.join('. ') : ''); msg.className = 'msg error'; }
+    } }, sf.el, h('label', {}, ' ', h('button', { class: 'primary', type: 'submit' }, 'Save subscription')));
+    return h('div', {}, h('button', { type: 'button', onclick: () => { panel.hidden = !panel.hidden; } }, 'Subscribe (run on a schedule)'), msg, panel);
+  }
 
   function collect() {
     const params = {};
