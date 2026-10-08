@@ -53,7 +53,7 @@ if (-not $node) {
   exit 1
 }
 $ver = (& node.exe -v).Trim()
-Write-Host "Found Node $ver at $($node.Source)"
+Write-Host "Found Node $ver at $($node.Definition)"
 $major = [int](($ver.TrimStart('v')).Split('.')[0])
 if ($major -lt 16) { throw "Node $ver is too old. Install Node 16." }
 if ($major -gt 16) { Write-Warning "Node $ver is newer than 16. That is fine if it runs on this server; the app is tested for 16." }
@@ -122,7 +122,7 @@ if (Test-Path $envPath) {
 Step '5/6 Windows service'
 if (-not $NssmPath) {
   foreach ($c in @('C:\tools\nssm\nssm.exe', (Join-Path $AppDir 'deploy\nssm.exe'))) { if (Test-Path $c) { $NssmPath = $c; break } }
-  if (-not $NssmPath) { $g = Get-Command nssm.exe -ErrorAction SilentlyContinue; if ($g) { $NssmPath = [string]@($g)[0].Source } }
+  if (-not $NssmPath) { $g = Get-Command nssm.exe -ErrorAction SilentlyContinue; if ($g) { $NssmPath = [string]@($g)[0].Definition } }
 }
 if (-not $NssmPath) {
   $dl = Ask 'NSSM (the service wrapper) was not found. Download it from nssm.cc now? (y/n)' 'y'
@@ -155,7 +155,7 @@ if (Get-Service -Name 'ReportServer' -ErrorAction SilentlyContinue) {
   Write-Host 'The ReportServer service already exists. Restarting it.'
   & $NssmPath restart ReportServer | Out-Null
 } else {
-  & (Join-Path $AppDir 'deploy\install-service.ps1') -NssmPath $NssmPath -AppDir $AppDir -NodePath ([string]$node.Source) -Port $Port -SqlServerService $sqlSvc
+  & (Join-Path $AppDir 'deploy\install-service.ps1') -NssmPath $NssmPath -AppDir $AppDir -NodePath ([string]$node.Definition) -Port $Port -SqlServerService $sqlSvc
 }
 
 # ---- 6. Health check and first-admin cleanup ----

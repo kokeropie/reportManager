@@ -17,7 +17,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $NssmPath)) { throw "nssm.exe not found at $NssmPath" }
-if (-not $NodePath) { $NodePath = [string]@(Get-Command node.exe -ErrorAction Stop)[0].Source }
+if (-not $NodePath) { $NodePath = [string]@(Get-Command node.exe -ErrorAction Stop)[0].Definition }
 $NssmPath = ([string]$NssmPath).Trim()
 $NodePath = ([string]$NodePath).Trim()
 if (-not $NodePath -or -not (Test-Path -LiteralPath $NodePath)) { throw "node.exe not found (got '$NodePath'). Pass -NodePath C:\path\to\node.exe" }
