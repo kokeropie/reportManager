@@ -15,7 +15,7 @@ export function scheduleForm() {
   const days = DAYS.map((d, i) => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: i, checked: i >= 1 && i <= 5 }), d));
   const daysBox = h('div', { class: 'row' }, days);
   const dom = h('input', { type: 'number', min: 1, max: 31, value: 1, 'aria-label': 'Day of month' });
-  const hours = h('input', { type: 'number', min: 1, max: 168, value: 6, 'aria-label': 'Hours' });
+  const hours = h('input', { type: 'number', min: 0.25, max: 168, step: 0.25, value: 6, 'aria-label': 'Hours' });
   const f = {
     time: h('label', {}, 'At (server time)', time),
     days: h('label', {}, 'On', daysBox),
@@ -37,6 +37,19 @@ export function scheduleForm() {
     el: [h('label', {}, 'Name', name), h('label', {}, 'Repeat', type), f.time, f.days, f.dom, f.hours,
       h('label', {}, 'File type', format), h('label', {}, 'Save in my folder', folder)],
     setName: (v) => { name.value = v; },
+    // Fill every field from a saved subscription (for the edit screen).
+    set(sub) {
+      name.value = sub.name;
+      format.value = sub.format;
+      folder.value = sub.folder || '';
+      const sc = sub.schedule;
+      type.value = sc.type;
+      if (sc.time) time.value = sc.time;
+      if (sc.type === 'weekly') for (const l of days) l.firstChild.checked = sc.days.includes(+l.firstChild.value);
+      if (sc.type === 'monthly') dom.value = sc.day;
+      if (sc.type === 'interval') hours.value = sc.everyMinutes / 60;
+      sync();
+    },
     read() {
       const t = type.value;
       const schedule = t === 'interval' ? { type: t, everyMinutes: Math.round(Number(hours.value) * 60) }
@@ -46,12 +59,62 @@ export function scheduleForm() {
   };
 }
 
+// One input per visible report parameter. Blank means "use the report's default each run" (so dates keep moving).
+function paramFields(rep, saved) {
+  const fields = rep.parameters.filter((p) => !p.hidden).map((p) => {
+    const cur = saved[p.name] ?? saved[Object.keys(saved).find((k) => k.toLowerCase() === p.name.toLowerCase())];
+    const ph = p.default !== null && p.default !== undefined && p.default !== '' ? `default: ${p.default}` : 'no default';
+    let el;
+    if (p.validValues) {
+      el = h('select', {}, h('option', { value: '' }, `(${ph})`), p.validValues.map((v) => h('option', { value: v.value, selected: String(cur) === v.value }, v.label)));
+    } else if (p.type === 'Boolean') {
+      el = h('select', {}, h('option', { value: '' }, `(${ph})`), h('option', { value: 'true', selected: cur === true }, 'Yes'), h('option', { value: 'false', selected: cur === false }, 'No'));
+    } else {
+      const type = p.type === 'DateTime' ? 'date' : p.type === 'Integer' || p.type === 'Float' ? 'number' : 'text';
+      el = h('input', { type, step: p.type === 'Float' ? 'any' : undefined, value: cur === undefined ? '' : String(cur).slice(0, type === 'date' ? 10 : 200), placeholder: ph });
+    }
+    return { p, el };
+  });
+  return {
+    el: fields.map(({ p, el }) => h('label', {}, p.prompt, el)),
+    read() {
+      const out = {};
+      for (const { p, el } of fields) {
+        if (el.value === '') continue;
+        out[p.name] = p.type === 'Boolean' ? el.value === 'true' : el.value;
+      }
+      return out;
+    },
+  };
+}
+
+async function editPanel(s, onSaved) {
+  const rep = await api('GET', '/reports/' + s.reportId);
+  const sf = scheduleForm();
+  sf.set(s);
+  const pf = paramFields(rep, s.params);
+  const msg = h('div', { class: 'msg', role: 'alert' });
+  const form = h('form', { class: 'grid', onsubmit: async (e) => {
+    e.preventDefault();
+    try {
+      await api('PUT', '/subscriptions/' + s.id, { ...sf.read(), params: pf.read() });
+      onSaved();
+    } catch (err) { msg.textContent = err.message + (err.data && err.data.details ? ' ' + err.data.details.join('. ') : ''); msg.className = 'msg error'; }
+  } }, sf.el, pf.el.length ? h('div', { class: 'muted' }, 'Parameters: leave blank to use the report\'s default each time it runs.') : '', pf.el,
+    h('label', {}, ' ', h('span', { class: 'row' }, h('button', { class: 'primary', type: 'submit' }, 'Save changes'), h('button', { type: 'button', onclick: onSaved }, 'Cancel'))));
+  return h('div', { class: 'card' }, h('h3', {}, 'Edit: ' + s.name), form, msg);
+}
+
 export async function renderSubscriptions() {
   const list = await api('GET', '/subscriptions');
   const box = h('div', { class: 'msg', role: 'status' });
   const reload = () => { view.replaceChildren(); return renderSubscriptions(); };
   const act = (fn) => async () => { try { await fn(); await reload(); } catch (e) { say(box, e.message); } };
   const history = h('div', {});
+  const editor = h('div', {});
+  const edit = async (s) => {
+    try { editor.replaceChildren(await editPanel(s, reload)); editor.scrollIntoView({ behavior: 'smooth' }); } catch (e) { say(box, e.message); }
+  };
 
   async function showHistory(s) {
     const runs = await api('GET', `/subscriptions/${s.id}/runs`);
@@ -77,10 +140,11 @@ export async function renderSubscriptions() {
           h('td', { class: 'actions' },
             h('button', { onclick: act(() => api('POST', `/subscriptions/${s.id}/run`)) }, 'Run now'), ' ',
             h('button', { onclick: act(() => api('PUT', `/subscriptions/${s.id}`, { enabled: !s.enabled })) }, s.enabled ? 'Pause' : 'Resume'), ' ',
+            h('button', { onclick: () => edit(s) }, 'Edit'), ' ',
             h('button', { onclick: () => showHistory(s) }, 'History'), ' ',
             h('button', { onclick: () => { if (confirm(`Delete "${s.name}" and its saved files?`)) act(() => api('DELETE', '/subscriptions/' + s.id))(); } }, 'Delete')))))
       ) : h('p', {}, 'No subscriptions yet.'), box),
-    history);
+    editor, history);
 }
 
 export async function renderFiles() {

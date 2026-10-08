@@ -236,3 +236,47 @@ test('start/wake/stop leave no timer running', async () => {
   const s = createScheduler({ db: { one: async () => null, query: async () => [] }, runs: {}, audit: {}, outputDir: '/x', log: quiet });
   s.start(); s.wake(); s.wake(); s.stop(); s.wake();
 });
+
+test('service: update changes schedule, params and folder, keeps ownership, wakes the scheduler', async () => {
+  const { createSubscriptionService } = require('../src/subscriptions/service');
+  const def = { parameters: [dp('startdate'), dp('enddate')] };
+  let row = { id: 11, user_id: 5, report_id: 3, report_name: 'PJTI', name: 'Old', params: '{}', format: 'csv',
+    schedule: JSON.stringify({ type: 'daily', time: '08:00' }), folder: '', enabled: 1, failures: 3 };
+  let updated = null;
+  let woke = 0;
+  const db = {
+    one: async (sql, p) => {
+      if (/FROM reports r JOIN folders/.test(sql)) return { id: 3, name: 'PJTI', is_system: 0 };
+      if (/WHERE s.id = @id AND s.user_id/.test(sql)) return p.userId === 5 ? row : null;
+      throw new Error('unexpected ' + sql);
+    },
+    query: async (sql, p) => {
+      if (/^\s*UPDATE subscriptions SET name/.test(sql)) {
+        updated = p;
+        row = { ...row, name: p.name, params: p.params, format: p.format, schedule: p.schedule, folder: p.folder, enabled: p.enabled ? 1 : 0, next_run_at: p.next };
+        return [];
+      }
+      throw new Error('unexpected ' + sql);
+    },
+  };
+  const svc = createSubscriptionService({ db, reports: { getRow: async () => ({}), loadDef: async () => def }, outputDir: '/tmp/x', now: () => L(2026, 10, 8, 7), onChange: () => woke++ });
+  const out = await svc.update({ id: 5, role: 'viewer' }, 11, {
+    name: 'New', format: 'xlsx', folder: 'Finance/Weekly', params: { startdate: '2026-01-01', enddate: '' },
+    schedule: { type: 'weekly', time: '09:30', days: [1] },
+  });
+  assert.strictEqual(out.name, 'New');
+  assert.strictEqual(out.scheduleText, 'Every Mon at 09:30');
+  assert.deepStrictEqual(JSON.parse(updated.params), { startdate: '2026-01-01' });
+  assert.deepStrictEqual(updated.next, L(2026, 10, 12, 9, 30)); // next Monday
+  assert.strictEqual(updated.folder, 'Finance/Weekly');
+  assert.strictEqual(updated.userId, 5);
+  assert.strictEqual(woke, 1);
+  // a partial edit keeps everything else
+  await svc.update({ id: 5, role: 'viewer' }, 11, { name: 'Renamed' });
+  assert.strictEqual(row.format, 'xlsx');
+  assert.strictEqual(row.folder, 'Finance/Weekly');
+  // a bad schedule is refused and nothing is saved
+  updated = null;
+  await assert.rejects(svc.update({ id: 5, role: 'viewer' }, 11, { schedule: { type: 'interval', everyMinutes: 1 } }), /between 15/);
+  assert.strictEqual(updated, null);
+});
