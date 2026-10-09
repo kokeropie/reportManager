@@ -68,6 +68,7 @@ function createReportsRouter({ reports, runs, cfg, audit }) {
           userId: req.session.userId,
           page: 1,
           layout: layoutOf(b.layout),
+          loadAll: b.loadAll === true,
           pageSize: Math.min(Math.max(parseInt(b.pageSize, 10) || cfg.pageSize, 10), 500),
         });
       } catch (e) {

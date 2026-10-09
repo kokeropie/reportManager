@@ -48,7 +48,7 @@ function createRunService({ reports, connections, pools, execute, limiter, runSt
     } else slice = picked.map(line);
     return {
       page: p, pageSize, totalPages, totalRows: body.length,
-      truncated: entry.truncated, maxRows: cfg.maxRows,
+      truncated: entry.truncated, maxRows: entry.cap || cfg.maxRows, canLoadAll: !!entry.truncated && !entry.loadedAll && (cfg.exportMaxRows || 0) > cfg.maxRows,
       heading: entry.heading,
       columns: entry.columns,
       layout: entry.layout,
@@ -110,19 +110,21 @@ function createRunService({ reports, connections, pools, execute, limiter, runSt
       return { row, def, grid, truncated: result.truncated, values };
     },
 
-    async run(reportId, submitted, { userId, page = 1, pageSize, layout }) {
-      const { row, grid, truncated } = await this.fetchGrid(reportId, submitted, cfg.maxRows, { layout });
+    // loadAll: the user confirmed they want past the screen cap; the larger export cap applies instead.
+    async run(reportId, submitted, { userId, page = 1, pageSize, layout, loadAll = false }) {
+      const cap = loadAll ? Math.max(cfg.maxRows, cfg.exportMaxRows || 0) : cfg.maxRows;
+      const { row, grid, truncated } = await this.fetchGrid(reportId, submitted, cap, { layout });
       const warnings = grid.warnings.slice();
-      if (truncated) warnings.push(`Only the first ${cfg.maxRows.toLocaleString('en-US')} rows were loaded. Narrow the parameters to see everything`);
+      if (truncated) warnings.push(`Only the first ${cap.toLocaleString('en-US')} rows were loaded. Narrow the parameters to see everything`);
       const entry = grid.multi ? {
         // stacked tables: headers travel with their block, footers are plain rows of the block
-        userId, reportId, layout: layout || 'all',
+        userId, reportId, layout: layout || 'all', cap, loadedAll: loadAll,
         columns: grid.columns, heading: grid.heading, warnings, truncated,
         header: [], footer: [],
         sectionHeaders: grid.rows.reduce((acc, r) => { if (r.kind === 'header') (acc[r.sec] = acc[r.sec] || []).push(r); return acc; }, {}),
         body: grid.rows.filter((r) => r.kind !== 'header' && r.kind !== 'spacer'),
       } : {
-        userId, reportId, layout: layout || 'all',
+        userId, reportId, layout: layout || 'all', cap, loadedAll: loadAll,
         columns: grid.columns, heading: grid.heading, warnings, truncated,
         header: grid.rows.filter((r) => r.kind === 'header'),
         footer: grid.rows.filter((r) => r.kind === 'footer'),

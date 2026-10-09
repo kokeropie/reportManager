@@ -74,7 +74,7 @@ export async function renderReport(me, id) {
 
   const fields = rep.parameters.filter((p) => !p.hidden).map((p) => ({ p, el: inputFor(p) }));
   const hidden = rep.parameters.filter((p) => p.hidden);
-  const form = h('form', { class: 'grid', onsubmit: (e) => { e.preventDefault(); run(); } },
+  const form = h('form', { class: 'grid', onsubmit: (e) => { e.preventDefault(); run(false); } },
     fields.map(({ p, el }) => h('label', { class: p.type === 'Boolean' ? 'check' : '' }, p.type === 'Boolean' ? [el, p.prompt] : [p.prompt, el])),
     h('label', {}, ' ', h('button', { class: 'primary', type: 'submit', id: 'run' }, 'View report')));
   top.append(form, err);
@@ -140,6 +140,11 @@ export async function renderReport(me, id) {
         h('button', { onclick: (e) => exportAs('csv', e.target) }, 'Export CSV'),
         h('button', { onclick: (e) => exportAs('xlsx', e.target) }, 'Export Excel'),
         h('span', { class: 'muted' }, 'Exports run the report again with the same parameters.')),
+      result.canLoadAll ? h('div', { class: 'row' },
+        h('button', { onclick: () => {
+          if (confirm(`Only the first ${result.maxRows.toLocaleString()} rows are shown. Loading all rows can take a while and use a lot of memory. Continue?`)) run(true);
+        } }, 'Load all rows'),
+        h('span', { class: 'muted' }, 'There are more rows than the screen limit.')) : '',
       pager(), tableFrom(result), result.totalPages > 1 ? pager() : ''));
   }
 
@@ -158,11 +163,11 @@ export async function renderReport(me, id) {
     catch (e) { showError(e); }
   }
 
-  async function run() {
+  async function run(all = false) {
     const btn = form.querySelector('#run');
     btn.disabled = true; btn.textContent = 'Running...';
     err.replaceChildren(); out.replaceChildren();
-    try { lastParams = collect(); draw(await api('POST', `/reports/${id}/run`, { params: lastParams, layout })); }
+    try { if (!(all === true && lastParams)) lastParams = collect(); draw(await api('POST', `/reports/${id}/run`, { params: lastParams, layout, loadAll: all === true })); }
     catch (e) { showError(e); }
     btn.disabled = false; btn.textContent = 'View report';
   }
