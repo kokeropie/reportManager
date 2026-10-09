@@ -69,7 +69,7 @@ T('missing @parameter in the RDL is an upload error, not a run-time surprise (FR
   await assert.rejects(svc.create({ folderId: 2, fileName: 'b.rdl', xml: broken, userId: 1 }), /@mystery/);
 });
 
-T('every one of the 19 samples is accepted (AC-1b)', async () => {
+T('every one of the 20 samples is accepted (AC-1b)', async () => {
   const { svc } = setup();
   const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.rdl'));
   let n = 0;
@@ -78,5 +78,5 @@ T('every one of the 19 samples is accepted (AC-1b)', async () => {
     assert.ok(out.id);
     n++;
   }
-  assert.strictEqual(n, 19);
+  assert.strictEqual(n, 20);
 });

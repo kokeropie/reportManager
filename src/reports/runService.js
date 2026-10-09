@@ -1,5 +1,5 @@
 'use strict';
-const { resolveParams, renderGrid, defaultValues, withDefaults, displayOf } = require('../rdl/engine');
+const { resolveParams, renderGrid, defaultValues, withDefaults, displayOf, availableLayouts } = require('../rdl/engine');
 const { buildBinding } = require('../runner/binding');
 const { wallNow } = require('../rdl/expressions');
 
@@ -28,18 +28,31 @@ function createRunService({ reports, connections, pools, execute, limiter, runSt
   }
 
   const cell = (c) => ({ text: displayOf(c), num: typeof c.value === 'number' || undefined, span: c.span });
-  const line = (r) => ({ kind: r.kind, cells: r.cells.map(cell) });
+  const line = (r) => ({ kind: r.kind, sec: r.sec, cells: r.cells.map(cell) });
 
   function pageOf(entry, page, pageSize) {
     const body = entry.body;
     const totalPages = Math.max(1, Math.ceil(body.length / pageSize));
     const p = Math.min(Math.max(1, page), totalPages);
-    const slice = body.slice((p - 1) * pageSize, p * pageSize).map(line);
+    const picked = body.slice((p - 1) * pageSize, p * pageSize);
+    let slice;
+    if (entry.sectionHeaders) {
+      // several tables on one screen: each block on this page gets its own header rows
+      slice = [];
+      let cur = -1;
+      for (const r of picked) {
+        if (r.sec !== cur) { cur = r.sec; slice.push(...(entry.sectionHeaders[cur] || [])); }
+        slice.push(r);
+      }
+      slice = slice.map(line);
+    } else slice = picked.map(line);
     return {
       page: p, pageSize, totalPages, totalRows: body.length,
       truncated: entry.truncated, maxRows: cfg.maxRows,
       heading: entry.heading,
       columns: entry.columns,
+      layout: entry.layout,
+      multi: !!entry.sectionHeaders,
       header: entry.header.map(line),
       rows: slice,
       footer: p === totalPages ? entry.footer.map(line) : [],
@@ -64,13 +77,14 @@ function createRunService({ reports, connections, pools, execute, limiter, runSt
           validValues: p.validValues, default: defaults[p.name],
         })),
         columns: head.columns.map((c) => c.name),
+        layouts: availableLayouts(def),
         warnings: JSON.parse(row.warnings || '[]'),
       };
     },
 
     // Shared by the screen run and the exports: validate, bind, query, render.
     // fillBlanks: unattended runs fill missing values from the defaults (yesterday / today for blank dates).
-    async fetchGrid(reportId, submitted, maxRows, { fillBlanks = false } = {}) {
+    async fetchGrid(reportId, submitted, maxRows, { fillBlanks = false, layout } = {}) {
       const { row, def } = await context(reportId);
       if (!row.connection_id) throw bad('Not configured, contact an administrator', 409);
       const { values, errors } = resolveParams(def, fillBlanks ? withDefaults(def, submitted) : submitted);
@@ -92,16 +106,23 @@ function createRunService({ reports, connections, pools, execute, limiter, runSt
       } catch (e) {
         throw explain(e, cfg);
       }
-      const grid = renderGrid(def, result.rows, values, { reportName: row.name });
+      const grid = renderGrid(def, result.rows, values, { reportName: row.name, layout });
       return { row, def, grid, truncated: result.truncated, values };
     },
 
-    async run(reportId, submitted, { userId, page = 1, pageSize }) {
-      const { row, grid, truncated } = await this.fetchGrid(reportId, submitted, cfg.maxRows);
+    async run(reportId, submitted, { userId, page = 1, pageSize, layout }) {
+      const { row, grid, truncated } = await this.fetchGrid(reportId, submitted, cfg.maxRows, { layout });
       const warnings = grid.warnings.slice();
       if (truncated) warnings.push(`Only the first ${cfg.maxRows.toLocaleString('en-US')} rows were loaded. Narrow the parameters to see everything`);
-      const entry = {
-        userId, reportId,
+      const entry = grid.multi ? {
+        // stacked tables: headers travel with their block, footers are plain rows of the block
+        userId, reportId, layout: layout || 'all',
+        columns: grid.columns, heading: grid.heading, warnings, truncated,
+        header: [], footer: [],
+        sectionHeaders: grid.rows.reduce((acc, r) => { if (r.kind === 'header') (acc[r.sec] = acc[r.sec] || []).push(r); return acc; }, {}),
+        body: grid.rows.filter((r) => r.kind !== 'header' && r.kind !== 'spacer'),
+      } : {
+        userId, reportId, layout: layout || 'all',
         columns: grid.columns, heading: grid.heading, warnings, truncated,
         header: grid.rows.filter((r) => r.kind === 'header'),
         footer: grid.rows.filter((r) => r.kind === 'footer'),

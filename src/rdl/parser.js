@@ -92,10 +92,70 @@ function buildTablix(tx) {
   const plan = arr(tx.TablixRowHierarchy && tx.TablixRowHierarchy.TablixMembers && tx.TablixRowHierarchy.TablixMembers.TablixMember).flatMap(convert);
   if (counter !== rows.length) warnings.push(`Row layout does not match its row hierarchy (${counter} vs ${rows.length}); the table may render incorrectly`);
 
-  const colGroups = JSON.stringify(tx.TablixColumnHierarchy || {}).includes('"Group"');
-  if (colGroups) warnings.push('Column groups (matrix) are not supported; the table may render incorrectly');
   return { columns, rows, plan, warnings };
 }
+
+// ---- Matrix (a Tablix with column groups) ----
+function memberHeader(m) {
+  const hd = m.TablixHeader;
+  if (!hd || typeof hd !== 'object') return null;
+  const tb = textboxOf(hd.CellContents);
+  return tb ? compileCell(tb, 1) : null;
+}
+
+function buildMatrix(tx) {
+  const body = tx.TablixBody || {};
+  const columns = arr(body.TablixColumns && body.TablixColumns.TablixColumn).map((c) => ({ width: inches(c.Width) }));
+  const rows = arr(body.TablixRows && body.TablixRows.TablixRow).map((r) => ({
+    cells: arr(r.TablixCells && r.TablixCells.TablixCell).map((c) => {
+      const contents = c.CellContents || {};
+      return compileCell(textboxOf(contents), 1);
+    }),
+  }));
+  const warnings = [];
+
+  // Each member becomes { type: 'group'|'static', header, exprs, sorts, children, leaf } where leaf is the index of the
+  // body row (row hierarchy) or body column (column hierarchy) that a childless member owns.
+  function hierarchy(root) {
+    let counter = 0;
+    const convert = (m) => {
+      m = m && typeof m === 'object' ? m : {};
+      const kids = arr(m.TablixMembers && m.TablixMembers.TablixMember);
+      const g = m.Group;
+      const node = {
+        type: g ? 'group' : 'static',
+        name: g ? g['@_Name'] || '' : '',
+        exprs: g ? arr(g.GroupExpressions && g.GroupExpressions.GroupExpression).map((e) => compile(text(e))) : [],
+        sorts: arr(m.SortExpressions && m.SortExpressions.SortExpression).map((s) => ({ c: compile(text(s.Value)), desc: /desc/i.test(text(s.Direction)) })),
+        header: memberHeader(m),
+        hideIfNoRows: /^true$/i.test(text(m.HideIfNoRows)),
+        children: kids.map(convert),
+        leaf: null,
+      };
+      if (!node.children.length) node.leaf = counter++;
+      return node;
+    };
+    const members = arr(root && root.TablixMembers && root.TablixMembers.TablixMember).map(convert);
+    return { members, leaves: counter };
+  }
+  const depthOf = (nodes) => Math.max(0, ...nodes.map((n) => (n.header ? 1 : 0) + depthOf(n.children)));
+
+  const colH = hierarchy(tx.TablixColumnHierarchy);
+  const rowH = hierarchy(tx.TablixRowHierarchy);
+  if (colH.leaves !== columns.length) warnings.push(`Matrix column layout does not match its column hierarchy (${colH.leaves} vs ${columns.length}); it may render incorrectly`);
+  if (rowH.leaves !== rows.length) warnings.push(`Matrix row layout does not match its row hierarchy (${rowH.leaves} vs ${rows.length}); it may render incorrectly`);
+
+  const cornerRows = arr(tx.TablixCorner && tx.TablixCorner.TablixCornerRows && tx.TablixCorner.TablixCornerRows.TablixCornerRow);
+  const corner = arr(cornerRows[0] && cornerRows[0].TablixCornerCell)[0];
+  const cornerCell = corner && corner.CellContents ? compileCell(textboxOf(corner.CellContents), 1) : null;
+  return {
+    name: tx['@_Name'] || '', top: inches(tx.Top) || 0,
+    columns, rows, colMembers: colH.members, rowMembers: rowH.members,
+    colDepth: depthOf(colH.members), rowDepth: depthOf(rowH.members), corner: cornerCell, warnings,
+  };
+}
+
+const isMatrix = (tx) => !!tx.TablixCorner || JSON.stringify(tx.TablixColumnHierarchy || {}).includes('"Group"');
 
 // ---- 2005 Table ----
 function buildTable(tb) {
@@ -247,18 +307,29 @@ function parseRdl(xmlText) {
     }
   }
 
-  // body
+  // body: every matrix is shown; of the plain tables only the first
   const items = (report.Body && report.Body.ReportItems) || {};
-  const tablixes = arr(items.Tablix);
+  const allTablix = arr(items.Tablix);
+  const matrixTx = allTablix.filter(isMatrix);
+  const tablixes = allTablix.filter((t) => !isMatrix(t));
   const tables = arr(items.Table);
   const nTables = tablixes.length + tables.length;
-  if (!nTables) throw new RdlError('The report has no table. Only tabular reports are supported');
+  if (!nTables && !matrixTx.length) throw new RdlError('The report has no table or matrix. Only tabular and matrix reports are supported');
   if (nTables > 1) warnings.push('The report has more than one table; only the first is shown');
-  const table = tablixes.length ? buildTablix(tablixes[0]) : buildTable(tables[0]);
-  warnings.push(...table.warnings);
-  const kinds = {};
-  classify(table.plan, false, kinds);
-  table.rows.forEach((r, i) => { r.kind = kinds[i] || 'detail'; });
+  const table = nTables ? (tablixes.length ? buildTablix(tablixes[0]) : buildTable(tables[0])) : null;
+  const tableTop = nTables ? inches((tablixes.length ? tablixes[0] : tables[0]).Top) || 0 : 0;
+  const matrices = matrixTx.map(buildMatrix);
+  if (table) {
+    warnings.push(...table.warnings);
+    const kinds = {};
+    classify(table.plan, false, kinds);
+    table.rows.forEach((r, i) => { r.kind = kinds[i] || 'detail'; });
+  }
+  matrices.forEach((m) => warnings.push(...m.warnings));
+  const sections = [
+    ...matrices.map((m) => ({ kind: 'matrix', top: m.top, matrix: m })),
+    ...(table ? [{ kind: 'table', top: tableTop }] : []),
+  ].sort((a, b) => a.top - b.top);
 
   const unsupported = [...findKeys(report.Body, ['Chart', 'Subreport', 'GaugePanel', 'Map', 'Matrix'])];
   if (unsupported.length) warnings.push(`Unsupported report items were ignored: ${unsupported.join(', ')}`);
@@ -279,7 +350,9 @@ function parseRdl(xmlText) {
     dataSource: source,
     dataset: { name: ds['@_Name'] || 'DataSet1', fields, commandText, commandType, queryParameters },
     parameters,
-    table: { columns: table.columns, rows: table.rows, plan: table.plan },
+    table: table ? { columns: table.columns, rows: table.rows, plan: table.plan } : null,
+    matrices,
+    sections: sections.map((x) => ({ kind: x.kind, matrix: x.matrix || null })),
     textboxes,
     warnings,
     errors,
@@ -296,8 +369,20 @@ function parseRdl(xmlText) {
     c.params.forEach((p) => { if (!paramByLower.has(p.toLowerCase())) badParams.add(p); });
   };
   const walkPlan = (nodes) => nodes.forEach((n) => { if (n.type === 'group') { n.exprs.forEach(check); n.sorts.forEach((s) => check(s.c)); walkPlan(n.children); } });
-  walkPlan(table.plan);
-  table.rows.forEach((r) => r.cells.forEach((c) => c.parts.forEach(check)));
+  if (table) {
+    walkPlan(table.plan);
+    table.rows.forEach((r) => r.cells.forEach((c) => c.parts.forEach(check)));
+  }
+  const walkMembers = (nodes) => nodes.forEach((n) => {
+    n.exprs.forEach(check); n.sorts.forEach((x) => check(x.c));
+    if (n.header) n.header.parts.forEach(check);
+    walkMembers(n.children);
+  });
+  matrices.forEach((m) => {
+    walkMembers(m.colMembers); walkMembers(m.rowMembers);
+    m.rows.forEach((r) => r.cells.forEach((c) => c.parts.forEach(check)));
+    if (m.corner) m.corner.parts.forEach(check);
+  });
   textboxes.forEach((t) => t.cell.parts.forEach(check));
   parameters.forEach((p) => check(p.defaultCompiled));
   fields.forEach((f) => check(f.expr));

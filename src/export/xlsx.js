@@ -22,7 +22,7 @@ const INVALID_SHEET_CHARS = /[\\/?*[\]:]/g;
 // Streaming writer: rows are committed as they are added, so memory use does not grow with the result.
 async function writeXlsx(res, grid, { sheetName }) {
   const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true, useSharedStrings: false });
-  const headerCount = grid.rows.filter((r) => r.kind === 'header').length;
+  const headerCount = grid.multi ? 0 : grid.rows.filter((r) => r.kind === 'header').length;
   const ws = wb.addWorksheet(String(sheetName || 'Report').replace(INVALID_SHEET_CHARS, ' ').slice(0, 31) || 'Report', {
     views: headerCount ? [{ state: 'frozen', ySplit: headerCount }] : [],
   });

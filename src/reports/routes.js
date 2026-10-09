@@ -15,6 +15,8 @@ function safeFileName(name) {
   return String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 120) || 'report';
 }
 
+const layoutOf = (v) => (['all', 'matrix', 'tabular'].includes(v) ? v : undefined);
+
 function createReportsRouter({ reports, runs, cfg, audit }) {
   const noAudit = { log: async () => {} };
   audit = audit || noAudit;
@@ -65,6 +67,7 @@ function createReportsRouter({ reports, runs, cfg, audit }) {
         out = await runs.run(id, b.params || {}, {
           userId: req.session.userId,
           page: 1,
+          layout: layoutOf(b.layout),
           pageSize: Math.min(Math.max(parseInt(b.pageSize, 10) || cfg.pageSize, 10), 500),
         });
       } catch (e) {
@@ -94,7 +97,7 @@ function createReportsRouter({ reports, runs, cfg, audit }) {
       if (!['csv', 'xlsx'].includes(format)) return res.status(400).json({ error: 'Format must be csv or xlsx' });
       let data;
       try {
-        data = await runs.exportData(id, params);
+        data = await runs.exportData(id, params, { layout: layoutOf((req.body || {}).layout) });
       } catch (e) {
         if (e.status !== 404) await audit.log({ ...who(req), action: 'export-' + format, reportId: id, reportName: await reportNameOf(id), params, status: 'error', error: e.detail || e.message });
         throw e;

@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { parseRdl, RdlError } = require('../src/rdl/parser');
 const { checkQuery } = require('../src/rdl/guard');
-const { defaultValues, resolveParams, renderGrid, displayOf } = require('../src/rdl/engine');
+const { defaultValues, resolveParams, renderGrid, displayOf, availableLayouts } = require('../src/rdl/engine');
 const { reportNameFromFile } = require('../src/reports/service');
 const T = fs.existsSync(require('path').join(__dirname, '..', 'sampleReport')) ? test : (name, fn) => test(name, { skip: 'sampleReport/ is not in the repo (kept private)' }, fn);
 
@@ -14,7 +14,7 @@ const DIR = path.join(__dirname, '..', 'sampleReport');
 const files = fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((f) => f.endsWith('.rdl')) : [];
 const load = (f) => parseRdl(fs.readFileSync(path.join(DIR, f), 'utf8'));
 
-T('sample folder has the 19 RDL files', () => assert.strictEqual(files.length, 19));
+T('sample folder has the 20 RDL files', () => assert.strictEqual(files.length, 20));
 
 for (const f of files) {
   test(`parses cleanly: ${f}`, () => {
@@ -110,4 +110,25 @@ T('zero rows still renders the header', () => {
   const g = renderGrid(def, [], resolveParams(def, defaultValues(def)).values);
   assert.deepStrictEqual(g.rows.map((r) => r.kind), ['header']);
   assert.strictEqual(g.columns[0].name, 'Divisi');
+});
+
+T('AR All v2 has two matrices and a table, viewable together or apart', () => {
+  const def = load('AR All v2.rdl');
+  assert.deepStrictEqual(def.sections.map((x) => x.kind), ['matrix', 'matrix', 'table']);
+  assert.deepStrictEqual(availableLayouts(def), ['all', 'matrix', 'tabular']);
+  const base = { DateOfCreated: new Date(Date.UTC(2026, 0, 5)), Divisi: 'D', Category: 'CA', EXRATE: 1, Voided: 'N' };
+  const rows = [
+    { ...base, SBU: 'A', BLK: 'X', OSORGAMT: 100 },
+    { ...base, SBU: 'A', BLK: 'X', OSORGAMT: 50 },
+    { ...base, SBU: 'B', BLK: 'Y', OSORGAMT: 25 },
+  ];
+  const { values } = resolveParams(def, defaultValues(def));
+  const m = renderGrid(def, rows, values, { layout: 'matrix' });
+  const last = m.rows[m.rows.length - 1];
+  assert.strictEqual(last.kind, 'groupFooter');
+  assert.strictEqual(displayOf(last.cells[last.cells.length - 1]), '175'); // grand total
+  assert.ok(m.rows.every((r) => r.kind !== 'detail' || r.cells.length === 4));
+  const t = renderGrid(def, rows, values, { layout: 'tabular' });
+  assert.ok(!t.multi && t.rows.filter((r) => r.kind === 'detail').length === 3);
+  assert.ok(renderGrid(def, rows, values, {}).multi);
 });

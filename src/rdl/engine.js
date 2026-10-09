@@ -143,13 +143,28 @@ function keyOf(values) {
   return values.map((v) => (v instanceof Date ? 'd' + v.getTime() : v === null || v === undefined ? 'n' : typeof v + ':' + v)).join('\u0001');
 }
 
+// Which report items a layout shows: 'all' (as designed), 'matrix' (matrices only) or 'tabular' (the table only).
+const LAYOUTS = ['all', 'matrix', 'tabular'];
+function availableLayouts(def) {
+  const hasMatrix = def.sections.some((x) => x.kind === 'matrix');
+  const hasTable = def.sections.some((x) => x.kind === 'table');
+  return hasMatrix && hasTable ? LAYOUTS : [];
+}
+function pickSections(def, layout) {
+  if (layout === 'matrix') { const m = def.sections.filter((x) => x.kind === 'matrix'); if (m.length) return m; }
+  if (layout === 'tabular') { const t = def.sections.filter((x) => x.kind === 'table'); if (t.length) return t; }
+  return def.sections;
+}
+
 function renderGrid(def, dbRows, paramValues, opts = {}) {
   const now = wallNow();
   const warnings = new Set();
   const rows = mapRows(def, dbRows, paramValues, now);
   const baseCtx = { params: paramValues, allRows: rows, scopeRows: rows, scopes: {}, now, reportName: opts.reportName };
   const out = [];
-  const spec = def.table.rows;
+  const sections = pickSections(def, opts.layout);
+  let spec = null;
+  let sec = 0;
 
   function evalCell(cell, ctx) {
     let acc = null;
@@ -178,7 +193,7 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
       const value = evalCell(c, ctx);
       cells.push({ value, format: c.format, span: c.colSpan > 1 ? c.colSpan : undefined });
     }
-    out.push({ kind: r.kind, cells });
+    out.push({ kind: r.kind, cells, sec });
   }
 
   function partition(node, scope, ctx) {
@@ -224,23 +239,113 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
       }
     }
   }
-  render(def.table.plan, rows, baseCtx);
 
-  // header text for each column (first header row) and body text boxes (title, subtitle, ...)
+  // ---- matrix: row groups down the side, column groups across the top, cells scoped to where the two cross ----
+  function instantiate(members, scope, ctx, scopes) {
+    const nodes = [];
+    for (const m of members) {
+      if (m.type === 'group') {
+        for (const part of partition(m, scope, ctx)) {
+          const sc = Object.assign({}, scopes);
+          if (m.name) sc[m.name.toLowerCase()] = part;
+          nodes.push({ def: m, scope: part, scopes: sc, children: instantiate(m.children, part, ctx, sc) });
+        }
+      } else if (!(m.hideIfNoRows && !scope.length)) {
+        nodes.push({ def: m, scope, scopes, children: instantiate(m.children, scope, ctx, scopes) });
+      }
+    }
+    return nodes;
+  }
+  const leafCount = (n) => (n.children.length ? n.children.reduce((a, c) => a + leafCount(c), 0) : 1);
+  const leavesOf = (nodes) => nodes.flatMap((n) => (n.children.length ? leavesOf(n.children) : [n]));
+  const nodeCtx = (n, ctx) => Object.assign({}, ctx, { row: n.scope[0] || null, scopeRows: n.scope, scopes: n.scopes });
+  const blank = () => ({ value: null, format: null });
+
+  function renderMatrix(m, ctx) {
+    const colRoots = instantiate(m.colMembers, rows, ctx, {});
+    const rowRoots = instantiate(m.rowMembers, rows, ctx, {});
+    const colLeaves = leavesOf(colRoots);
+    const rc = m.rowDepth;
+
+    // column headers: one output row per level of the column hierarchy
+    const hdr = Array.from({ length: m.colDepth }, () => []);
+    const put = (d, cell) => { if (hdr[d]) hdr[d].push(cell); };
+    (function fill(nodes, d) {
+      for (const n of nodes) {
+        const h = n.def.header;
+        if (h) {
+          const span = leafCount(n);
+          put(d, { value: evalCell(h, nodeCtx(n, ctx)), format: h.format, span: span > 1 ? span : undefined });
+          if (n.children.length) fill(n.children, d + 1);
+          else for (let k = d + 1; k < m.colDepth; k++) put(k, blank());
+        } else if (n.children.length) fill(n.children, d);
+        else for (let k = d; k < m.colDepth; k++) put(k, blank());
+      }
+    })(colRoots, 0);
+    hdr.forEach((cells, d) => {
+      if (rc) cells.unshift({ value: d === 0 && m.corner ? evalCell(m.corner, ctx) : null, format: null, span: rc > 1 ? rc : undefined });
+      out.push({ kind: 'header', cells, sec });
+    });
+
+    // body rows: depth-first through the row hierarchy; a header shows on the first row of its group, then stays blank
+    const colSets = colLeaves.map((cl) => new Set(cl.scope));
+    const pending = new Array(rc).fill(null);
+    function emit(leaf) {
+      const cells = [];
+      for (let k = 0; k < rc; k++) {
+        const p = pending[k];
+        if (p) {
+          pending[k] = null;
+          const isLeaf = p.node === leaf;
+          cells.push({ value: evalCell(p.node.def.header, nodeCtx(p.node, ctx)), format: p.node.def.header.format, span: isLeaf && rc - k > 1 ? rc - k : undefined });
+          if (isLeaf) { for (let j = k + 1; j < rc; j++) pending[j] = null; break; }
+        } else cells.push(blank());
+      }
+      const bodyRow = m.rows[leaf.def.leaf];
+      colLeaves.forEach((cl, ci) => {
+        const spec = bodyRow && bodyRow.cells[cl.def.leaf];
+        if (!spec) { cells.push(blank()); return; }
+        const inter = leaf.scope.filter((r) => colSets[ci].has(r));
+        if (!inter.length) { cells.push(blank()); return; }
+        const c2 = Object.assign({}, ctx, { row: inter[0], scopeRows: inter, scopes: Object.assign({}, cl.scopes, leaf.scopes) });
+        cells.push({ value: evalCell(spec, c2), format: spec.format });
+      });
+      out.push({ kind: leaf.def.type === 'group' ? 'detail' : 'groupFooter', cells, sec });
+    }
+    (function walk(nodes, d) {
+      for (const n of nodes) {
+        const h = n.def.header;
+        if (h) pending[d] = { node: n };
+        if (n.children.length) walk(n.children, h ? d + 1 : d);
+        else emit(n);
+      }
+    })(rowRoots, 0);
+  }
+
+  sections.forEach((x, i) => {
+    sec = i;
+    if (i > 0) out.push({ kind: 'spacer', cells: [], sec });
+    if (x.kind === 'matrix') renderMatrix(x.matrix, baseCtx);
+    else { spec = def.table.rows; render(def.table.plan, rows, baseCtx); }
+  });
+
+  // header text for each column (first header row of the first section)
   const headerRow = out.find((r) => r.kind === 'header');
-  const columns = def.table.columns.map((c, i) => ({
-    width: c.width,
-    name: headerRow && headerRow.cells[i] ? displayOf(headerRow.cells[i]) : `Column ${i + 1}`,
+  const widest = out.reduce((n, r) => Math.max(n, r.cells.reduce((a, c) => a + (c.span || 1), 0)), 0);
+  const baseWidths = sections[0].kind === 'table' ? def.table.columns : [];
+  const columns = Array.from({ length: Math.max(widest, baseWidths.length) }, (_, i) => ({
+    width: baseWidths[i] ? baseWidths[i].width : null,
+    name: sections.length === 1 && headerRow && headerRow.cells[i] ? displayOf(headerRow.cells[i]) : `Column ${i + 1}`,
   }));
   const heading = def.textboxes.map((t) => {
     try { return displayOf({ value: evalCell(t.cell, Object.assign({}, baseCtx, { row: rows[0] || null })), format: t.cell.format }); } catch (e) { return ''; }
   }).filter((s) => s !== '');
 
-  return { columns, rows: out, heading, warnings: [...warnings], rowCount: rows.length };
+  return { columns, rows: out, heading, warnings: [...warnings], rowCount: rows.length, multi: sections.length > 1 };
 }
 
 function displayOf(cell) {
   return cell.format ? formatValue(cell.value, cell.format) : defaultDisplay(cell.value);
 }
 
-module.exports = { renderGrid, resolveParams, defaultValues, withDefaults, displayOf, isoDate, coerceParam };
+module.exports = { availableLayouts, renderGrid, resolveParams, defaultValues, withDefaults, displayOf, isoDate, coerceParam };

@@ -23,6 +23,18 @@ function inputFor(p) {
 
 function tableFrom(result) {
   const rowEl = (r, tag) => h('tr', { class: r.kind }, r.cells.map((c) => h(tag, { class: c.num ? 'num' : '', colspan: c.span }, c.text)));
+  if (result.multi) {
+    // matrix and table on one screen: a new <table> starts wherever a header block starts
+    const blocks = [];
+    for (const r of result.rows) {
+      let b = blocks[blocks.length - 1];
+      if (!b || (r.kind === 'header' && b.body.length)) blocks.push(b = { head: [], body: [] });
+      (r.kind === 'header' ? b.head : b.body).push(r);
+    }
+    return h('div', {}, blocks.map((b) => h('div', { class: 'scroll' }, h('table', { class: 'result' },
+      b.head.length ? h('thead', {}, b.head.map((r) => rowEl(r, 'th'))) : '',
+      h('tbody', {}, b.body.map((r) => rowEl(r, 'td')))))));
+  }
   return h('div', { class: 'scroll' }, h('table', { class: 'result' },
     h('thead', {}, result.header.map((r) => rowEl(r, 'th'))),
     h('tbody', {}, result.rows.map((r) => rowEl(r, 'td'))),
@@ -35,6 +47,7 @@ export async function renderReport(me, id) {
   const err = h('div', { class: 'msg error', role: 'alert' });
   let current = null;
   let lastParams = null;
+  let layout = 'all';
 
   view.append(h('p', {}, h('a', { href: '#/folder/' + rep.folderId }, '← ' + rep.folderName)));
   view.append(h('div', { class: 'card' }, h('h2', {}, rep.name)));
@@ -67,6 +80,14 @@ export async function renderReport(me, id) {
   top.append(form, err);
   top.append(subscribePanel());
   view.append(out);
+
+  // Reports that hold both a matrix and a table can be viewed as either one, or both together.
+  function layoutPicker() {
+    if (!rep.layouts || !rep.layouts.length) return '';
+    const names = { all: 'Matrix and tabular', matrix: 'Matrix only', tabular: 'Tabular only' };
+    return h('label', {}, 'View as', h('select', { 'aria-label': 'View as', onchange: (e) => { layout = e.target.value; } },
+      rep.layouts.map((l) => h('option', { value: l }, names[l]))));
+  }
 
   // Subscribe: same parameters as the form above. Anything left at its default (like yesterday/today) is not
   // frozen: it follows the default every time the report runs.
@@ -126,7 +147,7 @@ export async function renderReport(me, id) {
     const label = btn.textContent;
     btn.disabled = true; btn.textContent = 'Preparing...';
     err.replaceChildren();
-    try { await download(`/reports/${id}/export?format=${format}`, { params: lastParams }); }
+    try { await download(`/reports/${id}/export?format=${format}`, { params: lastParams, layout }); }
     catch (e) { showError(e); }
     btn.disabled = false; btn.textContent = label;
   }
@@ -141,7 +162,7 @@ export async function renderReport(me, id) {
     const btn = form.querySelector('#run');
     btn.disabled = true; btn.textContent = 'Running...';
     err.replaceChildren(); out.replaceChildren();
-    try { lastParams = collect(); draw(await api('POST', `/reports/${id}/run`, { params: lastParams })); }
+    try { lastParams = collect(); draw(await api('POST', `/reports/${id}/run`, { params: lastParams, layout })); }
     catch (e) { showError(e); }
     btn.disabled = false; btn.textContent = 'View report';
   }
