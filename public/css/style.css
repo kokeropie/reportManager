@@ -5,7 +5,7 @@ body { margin:0; font:14px/1.45 system-ui, "Segoe UI", sans-serif; background:va
 header { display:flex; align-items:center; gap:16px; padding:10px 20px; background:var(--card); border-bottom:1px solid var(--line); }
 header h1 { font-size:16px; margin:0; flex:1; }
 nav { display:flex; gap:4px; }
-button, .btn { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
+button, .btn { text-decoration:none; display:inline-block; font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
 button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
 button.danger { color:var(--danger); }
 button.active { border-color:var(--accent); color:var(--accent); }

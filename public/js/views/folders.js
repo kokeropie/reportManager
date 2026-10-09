@@ -67,6 +67,7 @@ function reportRow(r, me, connections, afterChange, box, showFolder) {
     });
     cells.push(h('td', {}, h('span', { class: 'muted' }, r.dataSourceName ? r.dataSourceName + ' → ' : ''), sel));
     cells.push(h('td', { class: 'actions' },
+      h('a', { class: 'btn', href: `/api/reports/${r.id}/rdl`, download: '' }, 'Download'), ' ',
       h('button', { onclick: () => replace.click() }, 'Replace'), replace, ' ',
       h('button', { class: 'danger', onclick: async () => {
         if (!confirm(`Delete report "${r.name}"?`)) return;

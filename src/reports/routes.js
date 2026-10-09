@@ -50,6 +50,24 @@ function createReportsRouter({ reports, runs, cfg, audit }) {
     } catch (e) { next(e); }
   });
 
+  // Admin only: the RDL holds the report's SQL.
+  r.get('/:id/rdl', requireAdmin, async (req, res, next) => {
+    try {
+      const id = intParam(req.params.id);
+      if (Number.isNaN(id)) return notFound(res);
+      const file = await reports.readFile(id);
+      await audit.log({ ...who(req), action: 'download-rdl', reportId: id, reportName: file.name });
+      const base = safeFileName(file.name) + '.rdl';
+      res.set({
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${base.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(base)}`,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.send(file.content);
+    } catch (e) { next(e); }
+  });
+
   r.put('/:id/rdl', requireAdmin, async (req, res, next) => {
     try { res.json(await reports.replace(intParam(req.params.id), (req.body || {}).content)); } catch (e) { next(e); }
   });

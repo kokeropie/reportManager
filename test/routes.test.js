@@ -120,6 +120,7 @@ test('auth, CSRF and role rules', async (t) => {
     assert.strictEqual((await c('POST', '/folders/1/reports', { fileName: 'a.rdl', content: '<Report/>' })).status, 404);
     assert.strictEqual((await c('PUT', '/reports/1', { connectionId: 1 })).status, 404);
     assert.strictEqual((await c('PUT', '/reports/1/rdl', { content: 'x' })).status, 404);
+    assert.strictEqual((await c('GET', '/reports/1/rdl')).status, 404, 'only admins can download the RDL');
     assert.strictEqual((await c('DELETE', '/reports/1')).status, 404);
     assert.strictEqual((await c('POST', '/folders', { name: 'X' })).status, 404);
     assert.strictEqual((await c('DELETE', '/folders/1')).status, 404);

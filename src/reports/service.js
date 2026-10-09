@@ -142,6 +142,15 @@ function createReportService({ db, reportsDir }) {
       cache.delete(id);
     },
 
+    // The stored file exactly as uploaded, for an admin to download.
+    async readFile(id) {
+      const r = await this.getRow(id);
+      if (!r) throw bad('Not found', 404);
+      let content;
+      try { content = fs.readFileSync(filePath(r)); } catch (e) { throw bad('The report file is missing on the server. Upload it again', 404); }
+      return { name: r.name, content };
+    },
+
     // Parsed definition, cached until the report is replaced.
     async loadDef(row) {
       const stamp = String(row.updated_at && row.updated_at.getTime ? row.updated_at.getTime() : row.updated_at);
