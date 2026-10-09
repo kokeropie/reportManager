@@ -40,8 +40,34 @@ function textboxOf(contents) {
   return first(contents.Textbox);
 }
 
+const NAMED_COLORS = { white: 'FFFFFF', black: '000000', red: 'FF0000', green: '008000', blue: '0000FF', yellow: 'FFFF00', gray: '808080', grey: '808080', silver: 'C0C0C0', orange: 'FFA500', navy: '000080', maroon: '800000', lightgrey: 'D3D3D3', lightgray: 'D3D3D3', whitesmoke: 'F5F5F5' };
+function colorOf(v) {
+  const t = text(v).trim();
+  if (/^#[0-9a-f]{6}$/i.test(t)) return t.slice(1).toUpperCase();
+  return NAMED_COLORS[t.toLowerCase()] || null;
+}
+// Look and feel the Excel export reuses: fill, text colour, bold, size, alignment. Expressions are ignored.
+function styleOf(tb, run, para) {
+  const box = (tb && typeof tb.Style === 'object' && tb.Style) || {};
+  const r = (run && typeof run.style === 'object' && run.style) || {};
+  const pa = (para && typeof para.Style === 'object' && para.Style) || {};
+  const bg = colorOf(box.BackgroundColor);
+  const color = colorOf(r.Color) || colorOf(box.Color);
+  const weight = text(r.FontWeight) || text(box.FontWeight);
+  const bold = /^(bold|bolder|[6-9]00)$/i.test(weight);
+  const sz = /^([\d.]+)pt$/i.exec(text(r.FontSize) || text(box.FontSize));
+  const align = (text(pa.TextAlign) || text(r.TextAlign) || text(box.TextAlign)).toLowerCase();
+  const style = {};
+  if (bg) style.bg = bg;
+  if (color) style.color = color;
+  if (bold) style.bold = true;
+  if (sz) style.size = parseFloat(sz[1]);
+  if (['left', 'right', 'center'].includes(align)) style.align = align;
+  return Object.keys(style).length ? style : null;
+}
+
 function compileCell(tb, colSpan) {
-  if (!tb) return { parts: [], format: null, colSpan };
+  if (!tb) return { parts: [], format: null, style: null, colSpan };
   let runs = [];
   const paras = arr(tb.Paragraphs && tb.Paragraphs.Paragraph);
   if (paras.length) {
@@ -55,7 +81,9 @@ function compileCell(tb, colSpan) {
   }
   const fmtOf = (s) => (s && typeof s === 'object' && s.Format ? text(s.Format) : null);
   const format = runs.map((r) => fmtOf(r.style)).find(Boolean) || fmtOf(tb.Style) || null;
-  return { parts: runs.map((r) => (r.value === '\n' ? { literal: '\n' } : compile(r.value))), format, colSpan };
+  const firstPara = paras[0];
+  const firstRun = runs.find((r) => r.value !== '\n') || runs[0];
+  return { parts: runs.map((r) => (r.value === '\n' ? { literal: '\n' } : compile(r.value))), format, style: styleOf(tb, firstRun, firstPara), colSpan };
 }
 
 // ---- 2008+ Tablix ----

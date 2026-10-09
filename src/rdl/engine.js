@@ -191,7 +191,7 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
     const cells = [];
     for (const c of r.cells) {
       const value = evalCell(c, ctx);
-      cells.push({ value, format: c.format, span: c.colSpan > 1 ? c.colSpan : undefined });
+      cells.push({ value, format: c.format, style: c.style, span: c.colSpan > 1 ? c.colSpan : undefined });
     }
     out.push({ kind: r.kind, cells, sec });
   }
@@ -259,7 +259,7 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
   const leafCount = (n) => (n.children.length ? n.children.reduce((a, c) => a + leafCount(c), 0) : 1);
   const leavesOf = (nodes) => nodes.flatMap((n) => (n.children.length ? leavesOf(n.children) : [n]));
   const nodeCtx = (n, ctx) => Object.assign({}, ctx, { row: n.scope[0] || null, scopeRows: n.scope, scopes: n.scopes });
-  const blank = () => ({ value: null, format: null });
+  const blank = (style) => ({ value: null, format: null, style });
 
   function renderMatrix(m, ctx) {
     const colRoots = instantiate(m.colMembers, rows, ctx, {});
@@ -275,7 +275,7 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
         const h = n.def.header;
         if (h) {
           const span = leafCount(n);
-          put(d, { value: evalCell(h, nodeCtx(n, ctx)), format: h.format, span: span > 1 ? span : undefined });
+          put(d, { value: evalCell(h, nodeCtx(n, ctx)), format: h.format, style: h.style, span: span > 1 ? span : undefined });
           if (n.children.length) fill(n.children, d + 1);
           else for (let k = d + 1; k < m.colDepth; k++) put(k, blank());
         } else if (n.children.length) fill(n.children, d);
@@ -283,13 +283,14 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
       }
     })(colRoots, 0);
     hdr.forEach((cells, d) => {
-      if (rc) cells.unshift({ value: d === 0 && m.corner ? evalCell(m.corner, ctx) : null, format: null, span: rc > 1 ? rc : undefined });
+      if (rc) cells.unshift({ value: d === 0 && m.corner ? evalCell(m.corner, ctx) : null, format: null, style: m.corner ? m.corner.style : null, span: rc > 1 ? rc : undefined });
       out.push({ kind: 'header', cells, sec });
     });
 
     // body rows: depth-first through the row hierarchy; a header shows on the first row of its group, then stays blank
     const colSets = colLeaves.map((cl) => new Set(cl.scope));
     const pending = new Array(rc).fill(null);
+    const active = new Array(rc).fill(null); // header cell still repeating down the side: counts the rows it covers
     function emit(leaf) {
       const cells = [];
       for (let k = 0; k < rc; k++) {
@@ -297,9 +298,16 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
         if (p) {
           pending[k] = null;
           const isLeaf = p.node === leaf;
-          cells.push({ value: evalCell(p.node.def.header, nodeCtx(p.node, ctx)), format: p.node.def.header.format, span: isLeaf && rc - k > 1 ? rc - k : undefined });
-          if (isLeaf) { for (let j = k + 1; j < rc; j++) pending[j] = null; break; }
-        } else cells.push(blank());
+          const hc = p.node.def.header;
+          const cell = { value: evalCell(hc, nodeCtx(p.node, ctx)), format: hc.format, style: hc.style, span: isLeaf && rc - k > 1 ? rc - k : undefined };
+          cells.push(cell);
+          active[k] = cell;
+          cell.vspan = 1;
+          if (isLeaf) { for (let j = k + 1; j < rc; j++) { pending[j] = null; active[j] = null; } break; }
+        } else {
+          if (active[k]) active[k].vspan++;
+          cells.push(blank(active[k] ? active[k].style : undefined));
+        }
       }
       const bodyRow = m.rows[leaf.def.leaf];
       colLeaves.forEach((cl, ci) => {
@@ -308,14 +316,14 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
         const inter = leaf.scope.filter((r) => colSets[ci].has(r));
         if (!inter.length) { cells.push(blank()); return; }
         const c2 = Object.assign({}, ctx, { row: inter[0], scopeRows: inter, scopes: Object.assign({}, cl.scopes, leaf.scopes) });
-        cells.push({ value: evalCell(spec, c2), format: spec.format });
+        cells.push({ value: evalCell(spec, c2), format: spec.format, style: spec.style });
       });
       out.push({ kind: leaf.def.type === 'group' ? 'detail' : 'groupFooter', cells, sec });
     }
     (function walk(nodes, d) {
       for (const n of nodes) {
         const h = n.def.header;
-        if (h) pending[d] = { node: n };
+        if (h) { pending[d] = { node: n }; for (let j = d; j < rc; j++) active[j] = null; }
         if (n.children.length) walk(n.children, h ? d + 1 : d);
         else emit(n);
       }
@@ -341,7 +349,8 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
     try { return displayOf({ value: evalCell(t.cell, Object.assign({}, baseCtx, { row: rows[0] || null })), format: t.cell.format }); } catch (e) { return ''; }
   }).filter((s) => s !== '');
 
-  return { columns, rows: out, heading, warnings: [...warnings], rowCount: rows.length, multi: sections.length > 1 };
+  const headingStyle = def.textboxes[0] ? def.textboxes[0].cell.style : null;
+  return { columns, rows: out, heading, headingStyle, warnings: [...warnings], rowCount: rows.length, multi: sections.length > 1 };
 }
 
 function displayOf(cell) {

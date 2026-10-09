@@ -58,7 +58,7 @@ test('XLSX: bold frozen header, real numbers and dates, widths (FR-23, AC-3)', a
   assert.strictEqual(ws.name, 'My Report  v1');
   assert.strictEqual(ws.views[0].state, 'frozen');
   assert.strictEqual(ws.views[0].ySplit, 1);
-  assert.strictEqual(ws.getRow(1).font.bold, true);
+  assert.strictEqual(ws.getRow(1).getCell(1).font.bold, true);
   assert.strictEqual(ws.getRow(2).getCell(2).value, 1234.5);
   assert.strictEqual(typeof ws.getRow(2).getCell(2).value, 'number');
   const d = ws.getRow(2).getCell(3).value;
@@ -67,8 +67,31 @@ test('XLSX: bold frozen header, real numbers and dates, widths (FR-23, AC-3)', a
   assert.strictEqual(ws.getRow(3).getCell(3).numFmt, 'yyyy-mm-dd hh:mm:ss');
   assert.strictEqual(ws.getRow(3).getCell(1).value, "'=HYPERLINK(\"x\")");
   assert.strictEqual(ws.getRow(4).getCell(3).numFmt, '#,##0.00');
-  assert.strictEqual(ws.getRow(4).font.bold, true);
+  assert.strictEqual(ws.getRow(4).getCell(1).font.bold, true);
   assert.ok(ws.getColumn(1).width >= 8);
+});
+
+test('XLSX: title row, thin borders, RDL colours and merged cells like the SSRS Excel render', async () => {
+  const g = {
+    columns: [{ width: 1 }, { width: 1 }, { width: 1 }],
+    heading: ['AR Report'], headingStyle: { size: 18 },
+    rows: [
+      { kind: 'header', cells: [{ value: 'Name', style: { bg: '365838', color: 'FFFFFF' } }, { value: null, span: 2 }] },
+      { kind: 'detail', cells: [{ value: 'A', vspan: 2 }, { value: 'x' }, { value: 5, format: 'N2' }] },
+      { kind: 'detail', cells: [{ value: null }, { value: 'y' }, { value: 6, format: 'N2' }] },
+    ],
+  };
+  const s = new PassThrough(); const d = collect(s); await writeXlsx(s, g, { sheetName: 'T' });
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await d);
+  const ws = wb.worksheets[0];
+  assert.strictEqual(ws.getCell('A1').value, 'AR Report');
+  assert.strictEqual(ws.getCell('A3').value, 'Name');
+  assert.strictEqual(ws.getCell('A3').fill.fgColor.argb, 'FF365838');
+  assert.strictEqual(ws.getCell('A3').font.color.argb, 'FFFFFFFF');
+  assert.strictEqual(ws.getCell('A3').border.left.style, 'thin');
+  assert.strictEqual(ws.getCell('C4').numFmt, '#,##0.00');
+  const merged = Object.keys(ws._merges);
+  assert.ok(merged.includes('A1') && merged.includes('B3') && merged.includes('A4'), 'title, column span and row-group label are merged');
 });
 
 test('number format mapping', () => {
@@ -87,7 +110,7 @@ T('XLSX/CSV from a real sample report keep the same rows as the screen grid (AC-
   const s2 = new PassThrough(); const d2 = collect(s2); await writeXlsx(s2, g, { sheetName: 'x' });
   const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await d2);
   assert.strictEqual(csvLines.length, g.rows.length);
-  assert.strictEqual(wb.worksheets[0].actualRowCount, g.rows.length);
+  assert.strictEqual(wb.worksheets[0].actualRowCount, g.rows.length + (g.heading.length ? 1 : 0)); // the title row is the extra one
   assert.strictEqual(csvLines[0].split(',').length, def.table.columns.length);
 });
 
