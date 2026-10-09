@@ -185,6 +185,75 @@ function buildMatrix(tx) {
 
 const isMatrix = (tx) => !!tx.TablixCorner || JSON.stringify(tx.TablixColumnHierarchy || {}).includes('"Group"');
 
+// ---- 2005 Matrix: nested row/column groupings, each level optionally with a Subtotal ----
+function buildMatrix2005(mx) {
+  const warnings = [];
+  const textOf = (ri) => { const tb = first(ri && ri.Textbox); return tb ? compileCell(tb, 1) : null; };
+  const columns = arr(mx.MatrixColumns && mx.MatrixColumns.MatrixColumn).map((c) => ({ width: inches(c.Width) }));
+  const rows = arr(mx.MatrixRows && mx.MatrixRows.MatrixRow).map((r) => ({
+    cells: arr(r.MatrixCells && r.MatrixCells.MatrixCell).map((c) => compileCell(first(c.ReportItems && c.ReportItems.Textbox), 1)),
+  }));
+
+  // A level is { dynamic: { grouping, sorting, header, subtotal } } or { statics: [header, ...] }.
+  const levelsOf = (list, dynKey, staticKey, staticItem) => arr(list).map((g) => {
+    if (g[dynKey]) {
+      const d = g[dynKey];
+      const grouping = d.Grouping || {};
+      return {
+        group: {
+          name: grouping['@_Name'] || '',
+          exprs: arr(grouping.GroupExpressions && grouping.GroupExpressions.GroupExpression).map((e) => compile(text(e))),
+          sorts: arr(d.Sorting && d.Sorting.SortBy).map((x) => ({ c: compile(text(x.SortExpression)), desc: /desc/i.test(text(x.Direction)) })),
+        },
+        header: textOf(d.ReportItems),
+        subtotal: d.Subtotal ? textOf(d.Subtotal.ReportItems) || { parts: [], format: null, style: null, colSpan: 1 } : null,
+      };
+    }
+    const st = g[staticKey] || {};
+    return { statics: arr(st[staticItem]).map((x) => textOf(x.ReportItems)) };
+  });
+
+  // Turns the levels into the same member tree the 2008 matrix uses. "n" body rows/columns of the matrix are
+  // the leaves: every leaf (and every subtotal) points at the body row/column it takes its cells from.
+  function members(levels, bodyCount) {
+    const leafSet = (header, index) => ({ type: 'static', name: '', exprs: [], sorts: [], header, hideIfNoRows: false, children: [], leaf: index });
+    const bodyLeaves = (header) => (bodyCount > 1
+      ? Array.from({ length: bodyCount }, (_, i) => leafSet(i === 0 ? header : null, i))
+      : [leafSet(header, 0)]);
+    const build = (i) => {
+      if (i >= levels.length) return bodyLeaves(null);
+      const lv = levels[i];
+      if (lv.statics) {
+        // static entries: one leaf each, in order, taking body rows 0..n-1
+        return lv.statics.map((h, k) => leafSet(h, Math.min(k, bodyCount - 1)));
+      }
+      const g = lv.group;
+      const node = { type: 'group', name: g.name, exprs: g.exprs, sorts: g.sorts, header: lv.header, hideIfNoRows: false, children: [], leaf: null };
+      if (i + 1 < levels.length) node.children = build(i + 1);
+      else if (bodyCount > 1) node.children = bodyLeaves(null).map((k) => Object.assign(k, { detail: true }));
+      else node.leaf = 0;
+      const out = [node];
+      if (lv.subtotal) {
+        const sub = bodyCount > 1 ? Object.assign(leafSet(lv.subtotal, null), { leaf: null, children: bodyLeaves(null) }) : leafSet(lv.subtotal, 0);
+        out.push(sub);
+      }
+      return out;
+    };
+    return build(0);
+  }
+  const depthOf = (nodes) => Math.max(0, ...nodes.map((n) => (n.header ? 1 : 0) + depthOf(n.children)));
+
+  const colLevels = levelsOf(mx.ColumnGroupings && mx.ColumnGroupings.ColumnGrouping, 'DynamicColumns', 'StaticColumns', 'StaticColumn');
+  const rowLevels = levelsOf(mx.RowGroupings && mx.RowGroupings.RowGrouping, 'DynamicRows', 'StaticRows', 'StaticRow');
+  const colMembers = members(colLevels, Math.max(1, columns.length));
+  const rowMembers = members(rowLevels, Math.max(1, rows.length));
+  return {
+    name: mx['@_Name'] || '', top: inches(mx.Top) || 0,
+    columns, rows, colMembers, rowMembers,
+    colDepth: depthOf(colMembers), rowDepth: depthOf(rowMembers), corner: textOf(mx.CornerHeader), warnings,
+  };
+}
+
 // ---- 2005 Table ----
 function buildTable(tb) {
   const columns = arr(tb.TableColumns && tb.TableColumns.TableColumn).map((c) => ({ width: inches(c.Width) }));
@@ -341,12 +410,13 @@ function parseRdl(xmlText) {
   const matrixTx = allTablix.filter(isMatrix);
   const tablixes = allTablix.filter((t) => !isMatrix(t));
   const tables = arr(items.Table);
+  const matrices0 = [...matrixTx, ...arr(items.Matrix)];
   const nTables = tablixes.length + tables.length;
-  if (!nTables && !matrixTx.length) throw new RdlError('The report has no table or matrix. Only tabular and matrix reports are supported');
+  if (!nTables && !matrices0.length) throw new RdlError('The report has no table or matrix. Only tabular and matrix reports are supported');
   if (nTables > 1) warnings.push('The report has more than one table; only the first is shown');
   const table = nTables ? (tablixes.length ? buildTablix(tablixes[0]) : buildTable(tables[0])) : null;
   const tableTop = nTables ? inches((tablixes.length ? tablixes[0] : tables[0]).Top) || 0 : 0;
-  const matrices = matrixTx.map(buildMatrix);
+  const matrices = [...matrixTx.map(buildMatrix), ...arr(items.Matrix).map(buildMatrix2005)];
   if (table) {
     warnings.push(...table.warnings);
     const kinds = {};
@@ -359,7 +429,7 @@ function parseRdl(xmlText) {
     ...(table ? [{ kind: 'table', top: tableTop }] : []),
   ].sort((a, b) => a.top - b.top);
 
-  const unsupported = [...findKeys(report.Body, ['Chart', 'Subreport', 'GaugePanel', 'Map', 'Matrix'])];
+  const unsupported = [...findKeys(report.Body, ['Chart', 'Subreport', 'GaugePanel', 'Map'])];
   if (unsupported.length) warnings.push(`Unsupported report items were ignored: ${unsupported.join(', ')}`);
   if (tablixes[0] && JSON.stringify(tablixes[0].TablixBody).includes('"Subreport"')) warnings.push('A subreport inside the table was ignored');
 

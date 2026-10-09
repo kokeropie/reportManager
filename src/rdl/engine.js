@@ -318,7 +318,7 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
         const c2 = Object.assign({}, ctx, { row: inter[0], scopeRows: inter, scopes: Object.assign({}, cl.scopes, leaf.scopes) });
         cells.push({ value: evalCell(spec, c2), format: spec.format, style: spec.style });
       });
-      out.push({ kind: leaf.def.type === 'group' ? 'detail' : 'groupFooter', cells, sec });
+      out.push({ kind: leaf.def.type === 'group' || leaf.def.detail ? 'detail' : 'groupFooter', cells, sec });
     }
     (function walk(nodes, d) {
       for (const n of nodes) {
