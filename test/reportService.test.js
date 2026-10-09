@@ -54,9 +54,13 @@ T('rejected uploads save nothing (AC-5)', async () => {
   assert.deepStrictEqual(fs.readdirSync(dir), []);
 });
 
-T('a report name can exist only once per folder', async () => {
+T('uploading the same name again replaces the existing report', async () => {
   const { svc } = setup({ existing: true });
-  await assert.rejects(svc.create({ folderId: 2, fileName: 'a.rdl', xml: xml('Invoice List - PJTI (autoDate).rdl'), userId: 1 }), (e) => e.status === 409);
+  const calls = [];
+  svc.replace = async (id) => { calls.push(id); return { id, warnings: [] }; };
+  const out = await svc.create({ folderId: 2, fileName: 'a.rdl', xml: xml('Invoice List - PJTI (autoDate).rdl'), userId: 1 });
+  assert.strictEqual(out.replaced, true);
+  assert.strictEqual(calls.length, 1);
 });
 
 T('missing @parameter in the RDL is an upload error, not a run-time surprise (FR-16b)', async () => {

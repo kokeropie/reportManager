@@ -110,7 +110,7 @@ function uploadCard(folderId, connections, reload) {
         const out = await api('POST', `/folders/${folderId}/reports`, { fileName: f.name, content: await f.text(), connectionId: sel.value || null });
         ok++;
         li.className = 'ok';
-        li.textContent = `${f.name}: uploaded. ` + (out.connectionId ? (out.autoMatched ? 'Connection matched by data source name. ' : '') : `No connection assigned (data source "${out.dataSourceName}"). `);
+        li.textContent = `${f.name}: ${out.replaced ? 'replaced the existing report (subscriptions keep running with the new file). ' : 'uploaded. '}` + (out.replaced ? '' : out.connectionId ? (out.autoMatched ? 'Connection matched by data source name. ' : '') : `No connection assigned (data source "${out.dataSourceName}"). `);
         if (out.warnings.length) li.append(h('ul', {}, out.warnings.map((w) => h('li', { class: 'warn' }, w))));
       } catch (e) {
         li.className = 'error';

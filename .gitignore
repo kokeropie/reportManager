@@ -1,6 +1,6 @@
 node_modules/
 .env
-reports/
+/reports/
 .DS_Store
 release/
 logs/
