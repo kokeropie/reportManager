@@ -13,6 +13,7 @@ const { createFoldersRouter } = require('./folders/routes');
 const { createReportService } = require('./reports/service');
 const { createRunService } = require('./reports/runService');
 const { createReportsRouter } = require('./reports/routes');
+const { createServerFoldersRouter } = require('./export/serverFolders');
 const { createAuditService } = require('./audit/service');
 const { createAuditRouter } = require('./audit/routes');
 const { createSubscriptionService } = require('./subscriptions/service');
@@ -86,6 +87,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   api.use('/folders', createFoldersRouter({ db, reports }));
   api.use('/reports', createReportsRouter({ reports, runs, cfg: config, audit }));
 
+  api.use('/server-folders', createServerFoldersRouter({ outputDir: config.outputDir }));
   api.use('/subscriptions', createSubscriptionsRouter({ subs, audit }));
   api.use('/audit', createAuditRouter({ audit }));
 

@@ -1,5 +1,6 @@
 import { api, download, h } from '../api.js';
 import { scheduleForm } from './subscriptions.js';
+import { serverSavePanel } from './serverSave.js';
 
 const view = document.getElementById('view');
 
@@ -140,6 +141,7 @@ export async function renderReport(me, id) {
         h('button', { onclick: (e) => exportAs('csv', e.target) }, 'Export CSV'),
         h('button', { onclick: (e) => exportAs('xlsx', e.target) }, 'Export Excel'),
         h('span', { class: 'muted' }, 'Exports run the report again with the same parameters.')),
+      serverSavePanel((folder, format) => api('POST', `/reports/${id}/export?format=${format}`, { params: lastParams, layout, saveTo: folder })),
       result.canLoadAll ? h('div', { class: 'row' },
         h('button', { onclick: () => {
           if (confirm(`Only the first ${result.maxRows.toLocaleString()} rows are shown. Loading all rows can take a while and use a lot of memory. Continue?`)) run(true);

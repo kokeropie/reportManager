@@ -3,6 +3,9 @@ const express = require('express');
 const { requireAdmin } = require('../auth/middleware');
 const { writeCsv } = require('../export/csv');
 const { writeXlsx } = require('../export/xlsx');
+const { writeFile } = require('../subscriptions/scheduler');
+const { cleanFolder, resolveUnder } = require('../subscriptions/service');
+const { userRoot } = require('../export/serverFolders');
 
 const intParam = (v) => { const n = parseInt(v, 10); return Number.isInteger(n) ? n : NaN; };
 
@@ -114,6 +117,14 @@ function createReportsRouter({ reports, runs, cfg, audit }) {
     const format = String(req.query.format || '').toLowerCase();
     try {
       if (!['csv', 'xlsx'].includes(format)) return res.status(400).json({ error: 'Format must be csv or xlsx' });
+      // "Save to a server folder": the file is written under the user's own area on the server instead of downloaded.
+      const toServer = (req.body || {}).saveTo !== undefined && (req.body || {}).saveTo !== null;
+      let target = null;
+      if (toServer) {
+        if (!cfg || !cfg.outputDir) return res.status(400).json({ error: 'Saving to a server folder is not available' });
+        const folder = cleanFolder(req.body.saveTo); // throws a 400 for anything unsafe
+        target = { root: userRoot(cfg.outputDir, req.session.userId), folder };
+      }
       let data;
       try {
         data = await runs.exportData(id, params, { layout: layoutOf((req.body || {}).layout) });
@@ -123,6 +134,12 @@ function createReportsRouter({ reports, runs, cfg, audit }) {
       }
       await audit.log({ ...who(req), action: 'export-' + format, reportId: id, reportName: data.reportName, params, rowCount: data.grid.rowCount });
       const base = `${safeFileName(data.reportName)} ${fileStamp(new Date())}.${format}`;
+      if (target) {
+        const abs = resolveUnder(target.root, target.folder, base);
+        if (!abs) return res.status(400).json({ error: 'The folder is not allowed' });
+        const size = await writeFile(abs, format, data);
+        return res.json({ saved: true, folder: target.folder, fileName: base, location: abs, size, rowCount: data.grid.rowCount });
+      }
       res.set({
         'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="${base.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(base)}`,
