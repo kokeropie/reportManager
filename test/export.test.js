@@ -163,3 +163,19 @@ T('export over the cap is refused, never silently cut', async () => {
   const { svc } = runFixture({ rowCount: 501, truncated: true });
   await assert.rejects(svc.exportData(7, { startDate: '2026-01-01', endDate: '2026-01-02' }), (e) => e.status === 413 && /export limit/.test(e.message));
 });
+
+test('XLSX: NaN, Infinity, invalid dates and over-long text never reach the file (Excel calls those corrupt)', async () => {
+  const g = { columns: [{ width: 1 }, { width: 1 }, { width: 1 }, { width: 1 }], rowCount: 1, rows: [
+    { kind: 'detail', cells: [{ value: NaN }, { value: Infinity }, { value: new Date('nope') }, { value: 'a'.repeat(40000) }] },
+  ] };
+  const s = new PassThrough();
+  const done = collect(s);
+  await writeXlsx(s, g, { sheetName: 'R' });
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await done);
+  const row = wb.worksheets[0].getRow(1);
+  assert.strictEqual(row.getCell(1).value, null);
+  assert.strictEqual(row.getCell(2).value, null);
+  assert.strictEqual(row.getCell(3).value, null);
+  assert.strictEqual(String(row.getCell(4).value).length, 32767);
+});

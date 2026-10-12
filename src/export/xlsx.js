@@ -24,6 +24,22 @@ function merge(ws, top, left, bottom, right) {
   ws._merges.push(new Range(top, left, bottom, right));
 }
 
+// Excel reports the whole file as corrupt for NaN/Infinity/invalid dates (written as <v>NaN</v>), for text over
+// 32767 characters, and for lone surrogates. Turn those into blanks or safe text.
+function safeValue(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (v instanceof Date) {
+    const t = v.getTime();
+    if (Number.isNaN(t)) return null;
+    return v.getUTCFullYear() < 1900 ? v.toISOString().slice(0, 19).replace('T', ' ') : v; // Excel has no dates before 1900
+  }
+  if (typeof v === 'string') {
+    const s = v.replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '\ufffd');
+    return s.length > 32767 ? s.slice(0, 32767) : s;
+  }
+  return v;
+}
+
 const INVALID_SHEET_CHARS = /[\\/?*[\]:]/g;
 
 const THIN = { style: 'thin', color: { argb: 'FF808080' } };
@@ -83,7 +99,7 @@ async function writeXlsx(res, grid, { sheetName }) {
     for (const c of r.cells) {
       col++;
       let v = c.value;
-      if (v === undefined) v = null;
+      v = safeValue(v === undefined ? null : v);
       if (typeof v === 'string' && /^[=+@]/.test(v)) v = "'" + v; // never let text become a formula
       values.push(v);
       let nf = null;
