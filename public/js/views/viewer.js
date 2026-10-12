@@ -77,7 +77,11 @@ export async function renderReport(me, id) {
   const hidden = rep.parameters.filter((p) => p.hidden);
   const form = h('form', { class: 'grid', onsubmit: (e) => { e.preventDefault(); run(false); } },
     fields.map(({ p, el }) => h('label', { class: p.type === 'Boolean' ? 'check' : '' }, p.type === 'Boolean' ? [el, p.prompt] : [p.prompt, el])),
-    h('label', {}, ' ', h('button', { class: 'primary', type: 'submit', id: 'run' }, 'View report')));
+    h('label', {}, ' ', h('span', { class: 'row' },
+      h('button', { class: 'primary', type: 'submit', id: 'run' }, 'View report'),
+      // Export without viewing first: one query run, no second one for the screen.
+      h('button', { type: 'button', onclick: (e) => exportFromForm('csv', e.target) }, 'Export CSV'),
+      h('button', { type: 'button', onclick: (e) => exportFromForm('xlsx', e.target) }, 'Export Excel'))));
   top.append(form, err);
   top.append(subscribePanel());
   view.append(out);
@@ -150,7 +154,12 @@ export async function renderReport(me, id) {
       pager(), tableFrom(result), result.totalPages > 1 ? pager() : ''));
   }
 
-  async function exportAs(format, btn) {
+  function exportFromForm(format, btn) {
+    if (!form.reportValidity()) return;
+    return exportAs(format, btn, collect());
+  }
+
+  async function exportAs(format, btn, params = lastParams) {
     const label = btn.textContent;
     btn.disabled = true; btn.textContent = 'Preparing...';
     err.replaceChildren();
@@ -158,7 +167,7 @@ export async function renderReport(me, id) {
       name: rep.name.replace(/[\\/:*?"<>|]+/g, '_') + '.' + format, ext: format,
       mime: format === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     };
-    try { await download(`/reports/${id}/export?format=${format}`, { params: lastParams, layout }, save); }
+    try { await download(`/reports/${id}/export?format=${format}`, { params, layout }, save); }
     catch (e) { showError(e); }
     btn.disabled = false; btn.textContent = label;
   }
