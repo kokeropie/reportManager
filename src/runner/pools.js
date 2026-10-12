@@ -4,7 +4,7 @@ const mssql = require('mssql');
 const mysql = require('mysql2/promise');
 const { mssqlConnectionConfig } = require('../mssqlTarget');
 
-function createPools({ poolSize = 10, queryTimeoutMs = 120000 } = {}) {
+function createPools({ poolSize = 10, queryTimeoutMs = 0 } = {}) {
   const entries = new Map(); // connection id -> { key, pool, engine }
 
   async function build(c) {
@@ -87,7 +87,7 @@ async function executeMysql(entry, binding, { maxRows, timeoutMs }) {
       if (destroy) conn.destroy(); else conn.release();
       err ? reject(err) : resolve({ rows, truncated: !!truncated });
     };
-    const stream = conn.connection.query({ sql: binding.sql, values: binding.values, timeout: timeoutMs }).stream();
+    const stream = conn.connection.query({ sql: binding.sql, values: binding.values, timeout: timeoutMs || undefined }).stream();
     stream.on('data', (r) => {
       if (done) return;
       if (rows.length >= maxRows) { finish(null, true, true); return; } // drop this connection mid-result

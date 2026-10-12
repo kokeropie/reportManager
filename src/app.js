@@ -61,7 +61,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
 
   const audit = createAuditService(db);
   const users = createUserService(db);
-  const pools = poolsOverride || createPools({ poolSize: config.poolSize, queryTimeoutMs: config.queryTimeoutSeconds * 1000 });
+  const pools = poolsOverride || createPools({ poolSize: config.poolSize, queryTimeoutMs: Math.max(0, config.queryTimeoutSeconds) * 1000 });
   const connections = createConnectionService(db, config.encryptionKey, { onChange: (id) => pools.invalidate(id) });
   const reports = createReportService({ db, reportsDir: config.reportsDir });
   const runs = createRunService({

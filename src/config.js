@@ -38,7 +38,7 @@ function load(env = process.env) {
     outputDir: env.OUTPUT_DIR || path.join(__dirname, '..', 'output'),
     outputRetentionDays: parseInt(env.OUTPUT_RETENTION_DAYS || '30', 10),
     schedulerEnabled: bool(env.SCHEDULER_ENABLED, true),
-    queryTimeoutSeconds: parseInt(env.QUERY_TIMEOUT_SECONDS || '120', 10),
+    queryTimeoutSeconds: parseInt(env.QUERY_TIMEOUT_SECONDS || '0', 10),
     maxRows: parseInt(env.MAX_ROWS || '100000', 10),
     exportMaxRows: parseInt(env.EXPORT_MAX_ROWS || '500000', 10),
     pageSize: parseInt(env.PAGE_SIZE || '100', 10),

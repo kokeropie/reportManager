@@ -101,7 +101,7 @@ function createRunService({ reports, connections, pools, execute, limiter, runSt
       try {
         result = await limiter.run(async () => {
           const entry = await pools.get(conn);
-          return execute(entry, binding, { maxRows, timeoutMs: cfg.queryTimeoutSeconds * 1000 });
+          return execute(entry, binding, { maxRows, timeoutMs: Math.max(0, cfg.queryTimeoutSeconds) * 1000 });
         });
       } catch (e) {
         throw explain(e, cfg);

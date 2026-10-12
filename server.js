@@ -87,6 +87,10 @@ async function main() {
   }
 
   const server = app.listen(config.port, () => console.log(`Report server listening on port ${config.port}`));
+  // Slow report servers: never cut a long-running request off at the HTTP layer.
+  server.setTimeout(0);
+  server.requestTimeout = 0;
+  server.keepAliveTimeout = 65000;
   if (config.schedulerEnabled) { scheduler.start(); console.log('Scheduler started'); }
   const shutdown = () => { scheduler.stop(); server.close(() => Promise.all([pools.closeAll(), db.close()]).finally(() => process.exit(0))); };
   process.on('SIGINT', shutdown);
