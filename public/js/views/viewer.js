@@ -152,7 +152,11 @@ export async function renderReport(me, id) {
     const label = btn.textContent;
     btn.disabled = true; btn.textContent = 'Preparing...';
     err.replaceChildren();
-    try { await download(`/reports/${id}/export?format=${format}`, { params: lastParams, layout }); }
+    const save = {
+      name: rep.name.replace(/[\\/:*?"<>|]+/g, '_') + '.' + format, ext: format,
+      mime: format === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    };
+    try { await download(`/reports/${id}/export?format=${format}`, { params: lastParams, layout }, save); }
     catch (e) { showError(e); }
     btn.disabled = false; btn.textContent = label;
   }

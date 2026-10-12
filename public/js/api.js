@@ -28,7 +28,22 @@ export function h(tag, attrs, ...kids) {
 }
 
 // POST that returns a file: saved through a temporary link. Errors come back as JSON, like api().
-export async function download(url, body) {
+// With `save` ({ name, ext, mime }) the browser's Save As dialog opens first, so the user picks the folder and file
+// name (Chrome/Edge on https or localhost). The dialog must open straight from the click, before the slow request.
+// Browsers without it, or plain-http pages, fall back to a normal download into the Downloads folder.
+export async function download(url, body, save) {
+  let handle = null;
+  if (save && window.showSaveFilePicker && window.isSecureContext) {
+    try {
+      handle = await window.showSaveFilePicker({
+        suggestedName: save.name,
+        types: [{ description: save.ext.toUpperCase() + ' file', accept: { [save.mime]: ['.' + save.ext] } }],
+      });
+    } catch (e) {
+      if (e && e.name === 'AbortError') return false; // user cancelled the dialog
+      handle = null;
+    }
+  }
   const res = await fetch('/api' + url, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
@@ -47,6 +62,12 @@ export async function download(url, body) {
   const plain = /filename="([^"]+)"/i.exec(cd);
   const name = star ? decodeURIComponent(star[1]) : plain ? plain[1] : 'report';
   const blob = await res.blob();
+  if (handle) {
+    const w = await handle.createWritable();
+    await w.write(blob);
+    await w.close();
+    return true;
+  }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
@@ -54,4 +75,5 @@ export async function download(url, body) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  return true;
 }
