@@ -70,7 +70,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
     limiter: new Limiter(config.maxConcurrentRuns), runStore: new RunStore(), cfg: config,
   });
 
-  const scheduler = createScheduler({ db, runs, audit, outputDir: config.outputDir, retentionDays: config.outputRetentionDays });
+  const scheduler = createScheduler({ db, runs, audit, outputDir: config.outputDir, retentionDays: config.outputRetentionDays, keepFiles: config.subscriptionKeepFiles });
   const subs = createSubscriptionService({ db, reports, outputDir: config.outputDir, onChange: () => scheduler.wake() });
 
   // Unauthenticated liveness check for the Windows service / monitoring. Reveals nothing but up/down.

@@ -33,7 +33,7 @@ async function writeFile(abs, format, data) {
   return fs.statSync(abs).size;
 }
 
-function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, now = () => new Date(), log = console }) {
+function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepFiles = 7, now = () => new Date(), log = console }) {
   let busy = false;
   let timer = null;
   let lastCleanup = 0;
@@ -55,6 +55,19 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, now =
     );
   }
 
+  // Keeps only the newest `keepFiles` saved files of one subscription; older files and their history rows go.
+  async function prune(sub) {
+    if (!(keepFiles > 0)) return;
+    const rows = await db.query(
+      'SELECT id, file_name FROM subscription_runs WHERE subscription_id = @sid AND file_name IS NOT NULL ORDER BY id DESC', { sid: sub.id });
+    const root = resolveUnder(outputDir, String(sub.user_id));
+    for (const r of rows.slice(keepFiles)) {
+      const abs = root && resolveUnder(root, r.file_name);
+      if (abs) { try { fs.unlinkSync(abs); } catch (e) { /* already gone */ } }
+      await db.query('DELETE FROM subscription_runs WHERE id = @id', { id: r.id });
+    }
+  }
+
   async function execute(sub) {
     const started = now();
     const event = { userId: sub.user_id, username: sub.username, action: 'scheduled-run', reportId: sub.report_id, reportName: sub.report_name, params: JSON.parse(sub.params) };
@@ -68,6 +81,7 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, now =
       if (!abs) throw new Error('The folder is not allowed');
       const size = await writeFile(abs, sub.format, data);
       await record(sub, started, { status: 'ok', rows: data.grid.rowCount, file: rel, size });
+      await prune(sub).catch((e) => log.error(`Subscription ${sub.id} file cleanup failed: ${e.message}`));
       await audit.log({ ...event, rowCount: data.grid.rowCount });
     } catch (e) {
       const msg = e.detail ? `${e.message} (${e.detail})` : e.message;
@@ -142,7 +156,7 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, now =
   }
 
   return {
-    tick, cleanup, nextDelay,
+    tick, cleanup, prune, nextDelay,
     start() {
       if (!stopped) return;
       stopped = false;

@@ -37,6 +37,7 @@ function load(env = process.env) {
     reportsDir: env.REPORTS_DIR || path.join(__dirname, '..', 'reports'),
     outputDir: env.OUTPUT_DIR || path.join(__dirname, '..', 'output'),
     outputRetentionDays: parseInt(env.OUTPUT_RETENTION_DAYS || '30', 10),
+    subscriptionKeepFiles: parseInt(env.SUBSCRIPTION_KEEP_FILES || '7', 10),
     schedulerEnabled: bool(env.SCHEDULER_ENABLED, true),
     queryTimeoutSeconds: parseInt(env.QUERY_TIMEOUT_SECONDS || '0', 10),
     maxRows: parseInt(env.MAX_ROWS || '100000', 10),

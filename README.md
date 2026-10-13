@@ -46,7 +46,7 @@ More admins can be added from the **Users** page, or with `npm run create-admin 
 - **One login per person.** An admin adds users on the **Users** page with a temporary password; the person is made to choose their own at first sign-in (after an admin reset too) and can change it any time from **Change password**. Single session per user is on by default for new installs (toggle on the Users page).
 - **Dates.** A date parameter the RDL gives no default for starts as yesterday (start date) and today (end date). Defaults written in the RDL are kept.
 - **Subscriptions.** On a report page press **Subscribe**: pick daily, certain weekdays, monthly or every N hours (at least 15 minutes), CSV or Excel, and a folder name. Parameters left at their default keep following it (a daily report always gets yesterday and today). Manage them under **My subscriptions** (run now, pause, history, delete).
-- **Saved files.** Results are written to `OUTPUT_DIR\<user id>\<folder>\<name timestamp>.xlsx` and listed under **My files**. Users only see their own. Files and history older than `OUTPUT_RETENTION_DAYS` (30) are deleted.
+- **Saved files.** Results are written to `OUTPUT_DIR\<user id>\<folder>\<name timestamp>.xlsx` and listed under **My files**. Users only see their own. Files and history older than `OUTPUT_RETENTION_DAYS` (30) are deleted, and each subscription keeps only its newest `SUBSCRIPTION_KEEP_FILES` (7) files.
 - The scheduler lives inside the app, runs on the **server's clock and time zone**, sleeps until the next job is due, runs a job missed during downtime once, and pauses a subscription after 5 failures in a row (the reason shows in My subscriptions).
 
 ## Exports and audit log

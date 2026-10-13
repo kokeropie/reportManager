@@ -120,7 +120,7 @@ function fakeDb(sub) {
     state,
     query: async (sql, p) => {
       if (/FROM subscriptions s/.test(sql)) return state.sub.enabled && state.sub.next_run_at <= p.now ? [{ ...state.sub }] : [];
-      if (/INSERT INTO subscription_runs/.test(sql)) { state.runs.push(p); return []; }
+      if (/INSERT INTO subscription_runs/.test(sql)) { state.runs.push({ ...p, rid: state.runs.length + (state.deleted || 0) }); return []; }
       if (/UPDATE subscriptions SET last_run_at/.test(sql)) {
         state.sub.last_status = p.status;
         if (p.failed) { state.sub.failures++; if (state.sub.failures >= 5) state.sub.enabled = 0; } else state.sub.failures = 0;
@@ -128,6 +128,8 @@ function fakeDb(sub) {
       }
       if (/UPDATE subscriptions SET enabled = 0/.test(sql)) { state.sub.enabled = 0; return []; }
       if (/FROM subscription_runs WHERE started_at/.test(sql)) return [];
+      if (/FROM subscription_runs WHERE subscription_id/.test(sql)) return state.runs.filter((r) => r.file).map((r) => ({ id: r.rid, file_name: r.file })).reverse();
+      if (/DELETE FROM subscription_runs WHERE id/.test(sql)) { state.runs = state.runs.filter((r) => r.rid !== p.id); state.deleted = (state.deleted || 0) + 1; return []; }
       throw new Error('unexpected SQL ' + sql);
     },
     one: async (sql, p) => {
@@ -166,6 +168,20 @@ test('tick runs a due subscription once, saves the file under the user\'s own fo
   assert.strictEqual(db.state.runs[0].status, 'ok');
   assert.strictEqual(db.state.runs[0].file, 'Finance/Daily/' + files[0]);
   assert.strictEqual(seen.find((e) => e.action === 'scheduled-run').username, 'kusuma');
+});
+
+test('only the newest 7 files of a subscription are kept', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+  const db = fakeDb(baseSub());
+  const runs = { exportData: async () => ({ reportName: 'PJTI', grid }) };
+  let t = L(2026, 10, 8, 6, 0, 5);
+  const s = createScheduler({ db, runs, audit: { log: async () => {} }, outputDir: dir, keepFiles: 7, now: () => t, log: quiet });
+  const sub = path.join(dir, '7', 'Finance', 'Daily');
+  for (let i = 0; i < 9; i++) { await s.tick(); t = new Date(t.getTime() + 86400000); }
+  const files = fs.readdirSync(sub).sort();
+  assert.strictEqual(files.length, 7);
+  assert.match(files[0], /20261010/, 'the two oldest days are gone');
+  assert.strictEqual(db.state.runs.length, 7);
 });
 
 test('a failing run is recorded, and 5 failures in a row pause the subscription', async () => {
