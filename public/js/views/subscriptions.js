@@ -14,12 +14,12 @@ export function scheduleForm() {
   const time = h('input', { type: 'time', value: '06:00', required: true, 'aria-label': 'Time' });
   const days = DAYS.map((d, i) => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: i, checked: i >= 1 && i <= 5 }), d));
   const daysBox = h('div', { class: 'row' }, days);
-  const dom = h('input', { type: 'number', min: 1, max: 31, value: 1, 'aria-label': 'Day of month' });
+  const dom = h('input', { value: '1', placeholder: 'e.g. 1, 15, 31', 'aria-label': 'Days of month' });
   const hours = h('input', { type: 'number', min: 0.25, max: 168, step: 0.25, value: 6, 'aria-label': 'Hours' });
   const f = {
     time: h('label', {}, 'At (server time)', time),
     days: h('label', {}, 'On', daysBox),
-    dom: h('label', {}, 'Day of month (31 = last day if the month is shorter)', dom),
+    dom: h('label', {}, 'Days of month, comma separated (31 = last day if the month is shorter)', dom),
     hours: h('label', {}, 'Every how many hours', hours),
   };
   const sync = () => {
@@ -46,14 +46,16 @@ export function scheduleForm() {
       type.value = sc.type;
       if (sc.time) time.value = sc.time;
       if (sc.type === 'weekly') for (const l of days) l.firstChild.checked = sc.days.includes(+l.firstChild.value);
-      if (sc.type === 'monthly') dom.value = sc.day;
+      if (sc.type === 'monthly') dom.value = (sc.days || [sc.day]).join(', ');
       if (sc.type === 'interval') hours.value = sc.everyMinutes / 60;
       sync();
     },
     read() {
       const t = type.value;
+      const weekdays = days.map((l) => l.firstChild).filter((c) => c.checked).map((c) => +c.value);
+      const monthDays = dom.value.split(/[\s,;]+/).filter(Boolean).map(Number);
       const schedule = t === 'interval' ? { type: t, everyMinutes: Math.round(Number(hours.value) * 60) }
-        : { type: t, time: time.value, days: days.map((l) => l.firstChild).filter((c) => c.checked).map((c) => +c.value), day: Number(dom.value) };
+        : { type: t, time: time.value, days: t === 'monthly' ? monthDays : weekdays };
       return { name: name.value, schedule, format: format.value, folder: folder.value };
     },
   };

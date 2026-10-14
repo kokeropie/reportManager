@@ -27,9 +27,11 @@ function normalize(input) {
     }
     case 'monthly': {
       parseTime(s.time);
-      const day = Number(s.day);
-      if (!Number.isInteger(day) || day < 1 || day > 31) throw bad('Day of month must be 1-31');
-      return { type: 'monthly', time: s.time, day };
+      // `day` (a single number) is the older stored shape; it is read as a one-item list
+      const raw = Array.isArray(s.days) ? s.days : s.day !== undefined ? [s.day] : [];
+      const days = [...new Set(raw.map(Number))].sort((a, b) => a - b);
+      if (!days.length || days.some((d) => !Number.isInteger(d) || d < 1 || d > 31)) throw bad('Pick at least one day of the month (1-31)');
+      return { type: 'monthly', time: s.time, days };
     }
     case 'interval': {
       const minutes = Number(s.everyMinutes);
@@ -65,8 +67,11 @@ function nextRun(schedule, after) {
   // monthly: a day past the end of a short month (31 in April) runs on the last day of that month
   for (let i = 0; i <= 13; i++) {
     const last = new Date(y, mo + i + 1, 0).getDate();
-    const c = at(y, mo + i, Math.min(s.day, last));
-    if (c > after) return c;
+    const picks = [...new Set(s.days.map((d) => Math.min(d, last)))].sort((a, b) => a - b);
+    for (const day of picks) {
+      const c = at(y, mo + i, day);
+      if (c > after) return c;
+    }
   }
   throw new Error('Could not compute the next run');
 }
@@ -76,7 +81,7 @@ function describe(schedule) {
   const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   if (s.type === 'daily') return `Every day at ${s.time}`;
   if (s.type === 'weekly') return `Every ${s.days.map((d) => names[d]).join(', ')} at ${s.time}`;
-  if (s.type === 'monthly') return `Day ${s.day} of every month at ${s.time}`;
+  if (s.type === 'monthly') return `Day ${s.days.join(', ')} of every month at ${s.time}`;
   return s.everyMinutes % 60 === 0 ? `Every ${s.everyMinutes / 60} hour(s)` : `Every ${s.everyMinutes} minutes`;
 }
 

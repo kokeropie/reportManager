@@ -23,9 +23,17 @@ test('weekly: picks the next chosen weekday', () => {
   assert.deepStrictEqual(nextRun({ type: 'weekly', time: '06:30', days: [4] }, L(2026, 10, 8, 12)), L(2026, 10, 15, 6, 30));
 });
 
+test('monthly: several days, short months collapse duplicates, old single-day shape still works', () => {
+  const sc = { type: 'monthly', time: '01:00', days: [15, 1, 31] };
+  assert.deepStrictEqual(nextRun(sc, L(2026, 4, 2)), L(2026, 4, 15, 1, 0));
+  assert.deepStrictEqual(nextRun(sc, L(2026, 4, 16)), L(2026, 4, 30, 1, 0));
+  assert.deepStrictEqual(nextRun(sc, L(2026, 4, 30, 2)), L(2026, 5, 1, 1, 0));
+  assert.deepStrictEqual(nextRun({ type: 'monthly', time: '01:00', day: 10 }, L(2026, 4, 1)), L(2026, 4, 10, 1, 0));
+});
+
 test('monthly: day 31 falls back to the last day of a short month', () => {
-  assert.deepStrictEqual(nextRun({ type: 'monthly', time: '01:00', day: 31 }, L(2026, 4, 1)), L(2026, 4, 30, 1, 0));
-  assert.deepStrictEqual(nextRun({ type: 'monthly', time: '01:00', day: 1 }, L(2026, 12, 15)), L(2027, 1, 1, 1, 0));
+  assert.deepStrictEqual(nextRun({ type: 'monthly', time: '01:00', days: [31] }, L(2026, 4, 1)), L(2026, 4, 30, 1, 0));
+  assert.deepStrictEqual(nextRun({ type: 'monthly', time: '01:00', days: [1] }, L(2026, 12, 15)), L(2027, 1, 1, 1, 0));
 });
 
 test('interval: minimum 15 minutes, counted from the last time', () => {
