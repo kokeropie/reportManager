@@ -65,7 +65,8 @@ async function writeXlsx(res, grid, { sheetName }) {
   const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true, useSharedStrings: false });
   const title = grid.heading && grid.heading[0];
   const subtitle = title && grid.subtitle;
-  const offset = title ? (subtitle ? 3 : 2) : 0;
+  const info = title ? grid.info || [] : [];
+  const offset = title ? 2 + (subtitle ? 1 : 0) + info.length : 0;
   const headerCount = grid.multi ? 0 : grid.rows.filter((r) => r.kind === 'header').length;
   const ws = wb.addWorksheet(String(sheetName || 'Report').replace(INVALID_SHEET_CHARS, ' ').slice(0, 31) || 'Report', {
     views: headerCount ? [{ state: 'frozen', ySplit: offset + headerCount }] : [],
@@ -86,6 +87,10 @@ async function writeXlsx(res, grid, { sheetName }) {
       sub.getCell(1).font = { size: (grid.headingStyle && grid.headingStyle.size) || 18, bold: true, color: { argb: argb((grid.headingStyle && grid.headingStyle.color) || '365838') } };
       if (grid.columns.length > 1) merge(ws, rowNo, 1, rowNo, grid.columns.length);
       sub.commit();
+    }
+    for (const line of info) {
+      ws.addRow(line.map((v) => safeValue(/^[=+@]/.test(v) ? "'" + v : v))).commit();
+      rowNo++;
     }
     ws.addRow([]).commit();
     rowNo++;

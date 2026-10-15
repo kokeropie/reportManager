@@ -94,6 +94,7 @@ T('Corporate Billing: grouped by client, detail sorted by invoice (AC-1d style c
   // groups keep first-seen order (B then A); inside B the details are sorted by InvoiceID
   assert.deepStrictEqual(detail.map((r) => displayOf(r.cells[2])), ['INV1', 'INV2', 'INV9']);
   assert.match(g.heading.join('|'), /RECONCILIATION/);
+  assert.deepStrictEqual(g.info, [['Period', '1-30 Jan 26']]); // label + value line; "Number" has no value so it is left out
   assert.strictEqual(g.subtitle, 'B'); // client name line under the title, written to the XLSX as its own row
 });
 

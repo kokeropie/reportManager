@@ -354,7 +354,14 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
   const subtitle = t0 && t1 && t1.top > t0.top && (!t2 || t2.top > t1.top) ? evalBox(t1) : '';
 
   const headingStyle = def.textboxes[0] ? def.textboxes[0].cell.style : null;
-  return { columns, rows: out, heading, subtitle, headingStyle, warnings: [...warnings], rowCount: rows.length, multi: sections.length > 1 };
+  // label/value lines between the title block and the table (e.g. "Period" + its value); a line needs a non-empty value
+  const info = [];
+  const lineTops = [...new Set(def.textboxes.filter((t) => t !== t0 && !(subtitle && t === t1) && t.top < (def.tableTop || 0)).map((t) => t.top))].sort((a, b) => a - b);
+  for (const top of lineTops) {
+    const texts = def.textboxes.filter((t) => t.top === top).sort((a, b) => a.left - b.left).map(evalBox).filter((x) => x !== '');
+    if (texts.length > 1) info.push(texts);
+  }
+  return { columns, rows: out, heading, subtitle, info, headingStyle, warnings: [...warnings], rowCount: rows.length, multi: sections.length > 1 };
 }
 
 function displayOf(cell) {

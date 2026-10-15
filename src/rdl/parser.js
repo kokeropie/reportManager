@@ -436,6 +436,7 @@ function parseRdl(xmlText) {
   // title and other text boxes (evaluated with parameters when the report runs)
   const textboxes = arr(items.Textbox).map((tb) => ({
     top: inches(tb.Top) || 0,
+    left: inches(tb.Left) || 0,
     cell: compileCell(tb, 1),
     style: tb.Style && tb.Style.TextAlign ? text(tb.Style.TextAlign) : null,
   })).sort((a, b) => a.top - b.top);
@@ -452,6 +453,7 @@ function parseRdl(xmlText) {
     matrices,
     sections: sections.map((x) => ({ kind: x.kind, matrix: x.matrix || null })),
     textboxes,
+    tableTop,
     warnings,
     errors,
   };
