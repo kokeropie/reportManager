@@ -345,12 +345,16 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
     width: baseWidths[i] ? baseWidths[i].width : null,
     name: sections.length === 1 && headerRow && headerRow.cells[i] ? displayOf(headerRow.cells[i]) : `Column ${i + 1}`,
   }));
-  const heading = def.textboxes.map((t) => {
+  const evalBox = (t) => {
     try { return displayOf({ value: evalCell(t.cell, Object.assign({}, baseCtx, { row: rows[0] || null })), format: t.cell.format }); } catch (e) { return ''; }
-  }).filter((s) => s !== '');
+  };
+  const heading = def.textboxes.map(evalBox).filter((s) => s !== '');
+  // a text box on its own line right under the title (e.g. the client name) is exported as a second title row
+  const [t0, t1, t2] = def.textboxes;
+  const subtitle = t0 && t1 && t1.top > t0.top && (!t2 || t2.top > t1.top) ? evalBox(t1) : '';
 
   const headingStyle = def.textboxes[0] ? def.textboxes[0].cell.style : null;
-  return { columns, rows: out, heading, headingStyle, warnings: [...warnings], rowCount: rows.length, multi: sections.length > 1 };
+  return { columns, rows: out, heading, subtitle, headingStyle, warnings: [...warnings], rowCount: rows.length, multi: sections.length > 1 };
 }
 
 function displayOf(cell) {
