@@ -119,6 +119,8 @@ const MIGRATIONS = [
   CREATE INDEX ix_subruns_sub ON subscription_runs(subscription_id, id DESC);
   CREATE INDEX ix_subruns_user ON subscription_runs(user_id, id DESC);
   `,
+  // One user may be signed in on several PCs at once; admins can still switch single-session back on.
+  `UPDATE settings SET value = 'false' WHERE name = 'single_session';`,
 ];
 
 const DEFAULT_FOLDERS = [
@@ -147,7 +149,7 @@ async function migrate(db) {
     }
   }
   const s = await db.one(`SELECT value FROM settings WHERE name = 'single_session'`);
-  if (!s) await db.query(`INSERT INTO settings (name, value) VALUES ('single_session', 'true')`);
+  if (!s) await db.query(`INSERT INTO settings (name, value) VALUES ('single_session', 'false')`);
 }
 
 module.exports = { migrate, MIGRATIONS, DEFAULT_FOLDERS };

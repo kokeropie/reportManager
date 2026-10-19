@@ -44,7 +44,7 @@ function load(env = process.env) {
     exportMaxRows: parseInt(env.EXPORT_MAX_ROWS || '500000', 10),
     pageSize: parseInt(env.PAGE_SIZE || '100', 10),
     poolSize: parseInt(env.POOL_SIZE || '10', 10),
-    maxConcurrentRuns: parseInt(env.MAX_CONCURRENT_RUNS || '5', 10),
+    maxConcurrentRuns: parseInt(env.MAX_CONCURRENT_RUNS || '10', 10),
     adminUsername: env.ADMIN_USERNAME || 'admin',
     adminPassword: env.ADMIN_PASSWORD || '',
   };

@@ -30,7 +30,7 @@ export async function renderUsers() {
 
   view.append(
     h('div', { class: 'card' }, h('h2', {}, 'Add user'), form, box),
-    h('div', { class: 'card' }, h('label', { class: 'check' }, single, 'Single session per user (signing in elsewhere signs the user out)')),
+    h('div', { class: 'card' }, h('label', { class: 'check' }, single, 'Single session per user (off: one user can be signed in on several PCs at once)')),
     h('div', { class: 'card' }, h('h2', {}, 'Users'),
       h('table', {}, h('thead', {}, h('tr', {}, ['User', 'Role', 'Status', ''].map((t) => h('th', {}, t)))),
         h('tbody', {}, users.map((u) => h('tr', {},
