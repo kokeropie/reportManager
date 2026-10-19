@@ -51,7 +51,7 @@ function createSetupApp({ envPath, templatePath, code, existingKeyOk, inspect, c
   });
   const gate = (req, res, next) => {
     if (!safeEqual(String((req.body || {}).code || '').trim().toUpperCase(), code)) {
-      return bad(res, 'Wrong setup code. It is printed in the console where the server was started (or in logs\\out.log).', 403);
+      return bad(res, 'Wrong setup code. It is printed in the console where the server was started (or in logs\\out.log on Windows, or `journalctl -u report-server` on Ubuntu).', 403);
     }
     next();
   };

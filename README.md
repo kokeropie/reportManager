@@ -91,6 +91,25 @@ To do the steps by hand instead: copy `.env.example` to `.env`, fill it in, test
 
 **If it will not start.** Read `logs\error.log`. The usual causes are a missing `.env` value (the message names it), SQL Server not allowing TCP/IP or SQL logins, or a wrong database login.
 
+## Deploying on an Ubuntu server
+
+The same app runs on Ubuntu (or any systemd Linux). Nothing in `src/` is Windows-specific, and the app database is still SQL Server (this app does not need a Linux database).
+
+1. Install Node.js 16 or newer. For example Node 20 LTS: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs`.
+2. On your own computer run `bash deploy/package-release.sh`. It now builds both the `.zip` and a `report-server-<version>-<date>.tar.gz`. Copy the `.tar.gz` to the server and unpack it, for example `sudo tar -xzf report-server-*.tar.gz -C /opt` (gives `/opt/report-server`). Or clone the repository there and let the script run `npm ci`.
+3. Make sure SQL Server 2016 or newer (here or elsewhere) allows TCP/IP and SQL logins, and that this server can reach it (port 1433).
+4. In the app folder:
+   ```bash
+   sudo bash deploy/setup-ubuntu.sh
+   ```
+   It asks for the SQL Server details and the first admin login, writes `.env` (mode 600) with fresh secrets, optionally creates the empty database, creates a `reportserver` system user, installs and starts the `report-server` systemd service (starts on boot, restarts 5 seconds after a crash), waits for `/healthz`, and removes the admin password from `.env`. Use `PORT=8080 sudo -E bash deploy/setup-ubuntu.sh` for another port.
+5. Open `http://<server>:3000`. If `ufw` is on, allow the port: `sudo ufw allow 3000/tcp`.
+6. **Back up `ENCRYPTION_KEY`** from `.env`, and check the server time zone (`timedatectl`): scheduled reports use it.
+
+Day to day: `sudo systemctl status|restart|stop report-server`, logs with `journalctl -u report-server -f` (the setup code in setup mode is printed there too). **Updating:** stop the service, unpack the new `.tar.gz` over the old folder (it holds no `.env`, `reports/`, `output/` or `logs/`), `sudo chown -R reportserver:reportserver /opt/report-server`, start the service. **Removing:** `sudo bash deploy/uninstall-service.sh` (keeps the app, data and database). For HTTPS put nginx or Caddy in front, forwarding to `http://localhost:3000`, then set `TRUST_PROXY=true` and `COOKIE_SECURE=true`.
+
+Not yet run on a real Ubuntu server, same as the Windows scripts. Paths in subscriptions (`OUTPUT_DIR`) are case-sensitive on Linux.
+
 ## Known notes
 
 - `npm audit` reports about 8 moderate findings in dependencies. They are in code paths this app does not use (Azure sign-in inside the SQL driver, the XML *builder*, UUID functions with a caller-supplied buffer). Upgrading would break the Node 16 pinning, so they are left as they are; revisit when the server moves to a newer Node.

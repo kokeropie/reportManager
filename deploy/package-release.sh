@@ -25,3 +25,9 @@ ZIP="$OUT/report-server-$VERSION-$STAMP.zip"
 rm -f "$ZIP"
 (cd "$STAGE" && zip -qr "$ZIP" report-server)
 echo "Built $ZIP ($(du -h "$ZIP" | cut -f1))"
+
+# same content as a tar.gz for Ubuntu / Linux servers (keeps the executable bit on the .sh scripts)
+TGZ="$OUT/report-server-$VERSION-$STAMP.tar.gz"
+rm -f "$TGZ"
+tar -czf "$TGZ" -C "$STAGE" report-server
+echo "Built $TGZ ($(du -h "$TGZ" | cut -f1))"
