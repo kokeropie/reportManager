@@ -37,6 +37,10 @@ export async function renderUsers() {
           h('td', {}, u.username), h('td', {}, u.role), h('td', {}, u.disabled ? 'Disabled' : u.mustChangePassword ? 'Active (must set own password)' : 'Active'),
           h('td', { class: 'actions' },
             h('button', { onclick: act(() => api('PUT', '/users/' + u.id, { disabled: !u.disabled })) }, u.disabled ? 'Enable' : 'Disable'), ' ',
+            h('button', { class: 'danger', onclick: async () => {
+              if (!confirm(`Delete user "${u.username}"? Their subscriptions and saved files are deleted too. This cannot be undone.`)) return;
+              await act(() => api('DELETE', '/users/' + u.id))();
+            } }, 'Delete'), ' ',
             h('button', { onclick: async () => {
               const pw = prompt(`New password for ${u.username} (min 8 characters)`);
               if (!pw) return;

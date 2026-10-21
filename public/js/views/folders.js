@@ -17,7 +17,8 @@ export async function renderFolders(me) {
   view.append(h('div', { class: 'card' }, searchBar()));
 
   const rows = folders.map((f) => h('tr', {},
-    h('td', {}, h('a', { href: f.isSystem ? '#/connections' : '#/folder/' + f.id }, f.name), f.isSystem ? h('span', { class: 'muted' }, '  (admin only, holds connections)') : ''),
+    h('td', {}, h('a', { href: f.isSystem ? '#/connections' : '#/folder/' + f.id }, f.name), f.isSystem ? h('span', { class: 'muted' }, '  (admin only, holds connections)') : '',
+      f.restrictedTo ? h('span', { class: 'badge warn' }, ` ${f.restrictedTo} viewer${f.restrictedTo === 1 ? '' : 's'} only`) : ''),
     h('td', {}, f.isSystem ? '' : f.reportCount),
     me.role === 'admin' && !f.isSystem ? h('td', { class: 'actions' },
       h('button', { onclick: async () => {
@@ -91,7 +92,34 @@ export async function renderFolder(me, id) {
       h('table', {}, h('thead', {}, h('tr', {}, ['Report', '', ...(me.role === 'admin' ? ['Data source → connection', ''] : [])].map((t) => h('th', {}, t)))),
         h('tbody', {}, data.reports.map((r) => reportRow(r, me, connections, reload, box)))), box));
 
-  if (me.role === 'admin') view.append(uploadCard(id, connections, reload));
+  if (me.role === 'admin') {
+    view.append(uploadCard(id, connections, reload));
+    view.append(await accessCard(id));
+  }
+}
+
+// Default: every viewer can open the folder. Picking viewers here limits it to just them (admins always have access).
+async function accessCard(folderId) {
+  const [{ userIds }, users] = await Promise.all([api('GET', `/folders/${folderId}/access`), api('GET', '/users')]);
+  const viewers = users.filter((u) => u.role === 'viewer');
+  const box = h('div', { class: 'msg', role: 'status' });
+  const chosen = new Set(userIds);
+  const all = h('input', { type: 'radio', name: 'access', checked: !chosen.size });
+  const some = h('input', { type: 'radio', name: 'access', checked: chosen.size > 0 });
+  const list = h('div', { class: 'grid' }, viewers.map((u) => {
+    const box = h('input', { type: 'checkbox', checked: chosen.has(u.id), onchange: () => { box.checked ? chosen.add(u.id) : chosen.delete(u.id); some.checked = chosen.size > 0; all.checked = !some.checked; } });
+    return h('label', { class: 'check' }, box, u.username + (u.disabled ? ' (disabled)' : ''));
+  }));
+  all.addEventListener('change', () => { if (all.checked) { chosen.clear(); list.querySelectorAll('input').forEach((i) => { i.checked = false; }); } });
+  return h('div', { class: 'card' }, h('h2', {}, 'Who can open this folder'),
+    h('p', { class: 'muted' }, 'By default every viewer can. Tick specific viewers to limit the folder to them. Admins always have access.'),
+    h('label', { class: 'check' }, all, 'All viewers'),
+    h('label', { class: 'check' }, some, 'Only the selected viewers'),
+    viewers.length ? list : h('p', { class: 'muted' }, 'There are no viewer accounts yet.'),
+    h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', onclick: async () => {
+      try { await api('PUT', `/folders/${folderId}/access`, { userIds: [...chosen] }); say(box, chosen.size ? `Limited to ${chosen.size} viewer${chosen.size === 1 ? '' : 's'}` : 'Open to all viewers', true); }
+      catch (e) { say(box, e.message); }
+    } }, 'Save access')), box);
 }
 
 function uploadCard(folderId, connections, reload) {

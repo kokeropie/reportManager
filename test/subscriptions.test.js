@@ -209,7 +209,7 @@ test('a disabled owner or a lost folder right stops the run and pauses it, witho
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
   let queried = 0;
   const runs = { exportData: async () => { queried++; return { reportName: 'x', grid }; } };
-  for (const over of [{ user_disabled: 1 }, { folder_is_system: 1 }]) {
+  for (const over of [{ user_disabled: 1 }, { folder_is_system: 1 }, { folder_blocked: 1 }]) {
     const db = fakeDb(baseSub(over));
     await createScheduler({ db, runs, audit: { log: async () => {} }, outputDir: dir, now: () => L(2026, 10, 8, 7), log: quiet }).tick();
     assert.strictEqual(db.state.sub.enabled, 0);
@@ -231,7 +231,7 @@ test('service: create validates, scopes to the owner, hides the Connection folde
     },
     query: async () => [],
   };
-  const reports = { getRow: async () => ({}), loadDef: async () => def };
+  const reports = { getRow: async () => ({}), loadDef: async () => def, canAccess: async (id) => id !== 4 };
   const svc = createSubscriptionService({ db, reports, outputDir: '/tmp/x', now: () => L(2026, 10, 8, 7) });
   const viewer = { id: 5, role: 'viewer' };
   const sub = await svc.create(viewer, { reportId: 3, format: 'xlsx', schedule: { type: 'daily', time: '08:00' }, folder: 'Finance/Daily', params: { startdate: '' } });
@@ -240,6 +240,7 @@ test('service: create validates, scopes to the owner, hides the Connection folde
   assert.deepStrictEqual(rows[0].next, L(2026, 10, 8, 8, 0));
   assert.strictEqual(rows[0].params, '{}');
   await assert.rejects(svc.create(viewer, { reportId: 9, format: 'csv', schedule: { type: 'daily', time: '08:00' } }), /Not found/);
+  await assert.rejects(svc.create(viewer, { reportId: 4, format: 'csv', schedule: { type: 'daily', time: '08:00' } }), /Not found/, 'folder access list');
   await assert.rejects(svc.create(viewer, { reportId: 3, format: 'pdf', schedule: { type: 'daily', time: '08:00' } }), /Format/);
   await assert.rejects(svc.create(viewer, { reportId: 3, format: 'csv', schedule: { type: 'daily', time: '08:00' }, folder: '../..' }), /not allowed/);
   await assert.rejects(svc.update({ id: 6, role: 'viewer' }, 11, { enabled: false }), /Not found/);
@@ -283,7 +284,7 @@ test('service: update changes schedule, params and folder, keeps ownership, wake
       throw new Error('unexpected ' + sql);
     },
   };
-  const svc = createSubscriptionService({ db, reports: { getRow: async () => ({}), loadDef: async () => def }, outputDir: '/tmp/x', now: () => L(2026, 10, 8, 7), onChange: () => woke++ });
+  const svc = createSubscriptionService({ db, reports: { getRow: async () => ({}), loadDef: async () => def, canAccess: async () => true }, outputDir: '/tmp/x', now: () => L(2026, 10, 8, 7), onChange: () => woke++ });
   const out = await svc.update({ id: 5, role: 'viewer' }, 11, {
     name: 'New', format: 'xlsx', folder: 'Finance/Weekly', params: { startdate: '2026-01-01', enddate: '' },
     schedule: { type: 'weekly', time: '09:30', days: [1] },

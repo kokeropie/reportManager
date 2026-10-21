@@ -121,6 +121,15 @@ const MIGRATIONS = [
   `,
   // One user may be signed in on several PCs at once; admins can still switch single-session back on.
   `UPDATE settings SET value = 'false' WHERE name = 'single_session';`,
+  // Folder access: no rows for a folder = every viewer can open it; rows = only those viewers (admins always can).
+  `
+  CREATE TABLE folder_access (
+    folder_id INT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    user_id   INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT pk_folder_access PRIMARY KEY (folder_id, user_id)
+  );
+  CREATE INDEX ix_folder_access_user ON folder_access(user_id);
+  `,
 ];
 
 const DEFAULT_FOLDERS = [

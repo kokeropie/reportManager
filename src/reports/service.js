@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { parseRdl, RdlError } = require('../rdl/parser');
+const { FOLDER_OPEN_SQL, who } = require('../folders/access');
 
 const MAX_RDL_BYTES = 5 * 1024 * 1024;
 const bad = (msg, status = 400, extra) => Object.assign(new Error(msg), { status }, extra);
@@ -52,11 +53,18 @@ function createReportService({ db, reportsDir }) {
     async listByFolder(folderId) {
       return (await db.query(`${SELECT} WHERE r.folder_id = @folderId ORDER BY r.name`, { folderId })).map(publicReport);
     },
-    async search(q) {
+    // Can this user open the report's folder? Admins always can; viewers follow the folder's access list.
+    async canAccess(id, userId, role) {
+      const row = await db.one(`SELECT r.id FROM reports r JOIN folders f ON f.id = r.folder_id WHERE r.id = @id AND ${FOLDER_OPEN_SQL}`,
+        { id, admin: role === 'admin', userId });
+      return !!row;
+    },
+    async search(q, user) {
       const like = '%' + String(q || '').replace(/[%_[]/g, (c) => '[' + c + ']') + '%';
       return (await db.query(
         `SELECT TOP 100 r.*, f.name AS folder_name FROM reports r JOIN folders f ON f.id = r.folder_id
-         WHERE f.is_system = 0 AND (r.name LIKE @like OR r.title LIKE @like) ORDER BY r.name`, { like })).map(publicReport);
+         WHERE f.is_system = 0 AND ${FOLDER_OPEN_SQL} AND (r.name LIKE @like OR r.title LIKE @like) ORDER BY r.name`,
+        { like, ...who(user) })).map(publicReport);
     },
     async getRow(id) {
       return db.one(`${SELECT} WHERE r.id = @id`, { id });

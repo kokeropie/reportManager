@@ -15,7 +15,7 @@ function start(outputDir, userId = 5) {
   app.use((req, res, next) => { req.session = { userId, username: 'u', role: 'viewer' }; next(); });
   const grid = { rowCount: 1, columns: [{ name: 'A' }], header: [{ cells: [{ text: 'A' }] }], rows: [{ kind: 'detail', cells: [{ value: 'Hello' }] }], footer: [] };
   const runs = { exportData: async () => ({ reportName: 'Rep', grid }) };
-  const reports = { getRow: async () => ({ name: 'Rep' }) };
+  const reports = { getRow: async () => ({ name: 'Rep' }), canAccess: async () => true };
   app.use('/folders', createServerFoldersRouter({ outputDir }));
   app.use('/reports', createReportsRouter({ reports, runs, cfg: { outputDir, pageSize: 10 } }));
   app.use((err, req, res, next) => res.status(err.status || 500).json({ error: err.message }));

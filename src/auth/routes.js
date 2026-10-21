@@ -1,6 +1,8 @@
 'use strict';
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const fs = require('fs');
+const { resolveUnder } = require('../subscriptions/service');
 const { requireAuth, requireAdmin, csrfProtect, newCsrfToken } = require('./middleware');
 
 function regenerate(req) {
@@ -81,7 +83,7 @@ function createAuthRouter({ users, store, db, audit }) {
   return r;
 }
 
-function createUsersRouter({ users, store }) {
+function createUsersRouter({ users, store, outputDir }) {
   const r = express.Router();
   r.use(requireAdmin);
 
@@ -105,6 +107,24 @@ function createUsersRouter({ users, store }) {
       await users.update(id, { role, disabled });
       if (disabled === true || role !== undefined) await store.destroyForUser(id, id === req.session.userId ? req.sessionID : null);
       res.json(await users.get(id));
+    } catch (e) { next(e); }
+  });
+
+  r.delete('/:id', async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const target = await users.get(id);
+      if (!target) return res.status(404).json({ error: 'Not found' });
+      if (id === req.session.userId) return res.status(400).json({ error: 'You cannot delete your own account' });
+      if (target.role === 'admin' && !target.disabled && (await users.countActiveAdmins()) <= 1) {
+        return res.status(400).json({ error: 'At least one active admin is required' });
+      }
+      await users.remove(id);
+      if (outputDir) { // saved report files of this user
+        const dir = resolveUnder(outputDir, String(id));
+        if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { console.error('Could not remove output of user', id, e.message); } }
+      }
+      res.json({ ok: true });
     } catch (e) { next(e); }
   });
 

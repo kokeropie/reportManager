@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { nextRun } = require('./schedule');
 const { resolveUnder, safeName } = require('./service');
+const { FOLDER_BLOCKED_FOR_OWNER_SQL } = require('../folders/access');
 const { writeCsv } = require('../export/csv');
 const { writeXlsx } = require('../export/xlsx');
 
@@ -73,7 +74,7 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepF
     const event = { userId: sub.user_id, username: sub.username, action: 'scheduled-run', reportId: sub.report_id, reportName: sub.report_name, params: JSON.parse(sub.params) };
     try {
       if (sub.user_disabled) throw Object.assign(new Error('The owner account is disabled'), { fatal: true });
-      if (sub.folder_is_system && sub.role !== 'admin') throw Object.assign(new Error('The owner can no longer open this report'), { fatal: true });
+      if ((sub.folder_is_system || sub.folder_blocked) && sub.role !== 'admin') throw Object.assign(new Error('The owner can no longer open this report'), { fatal: true });
       const data = await runs.exportData(sub.report_id, JSON.parse(sub.params), { fillBlanks: true });
       const rel = [sub.folder, `${safeName(sub.name)} ${stamp(started)}.${sub.format}`].filter(Boolean).join('/');
       const root = resolveUnder(outputDir, String(sub.user_id));
@@ -100,7 +101,8 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepF
     try {
       const t = now();
       const due = await db.query(
-        `SELECT TOP 20 s.*, r.name AS report_name, u.username, u.role, u.disabled AS user_disabled, f.is_system AS folder_is_system
+        `SELECT TOP 20 s.*, r.name AS report_name, u.username, u.role, u.disabled AS user_disabled, f.is_system AS folder_is_system,
+                ${FOLDER_BLOCKED_FOR_OWNER_SQL} AS folder_blocked
          FROM subscriptions s
          JOIN users u ON u.id = s.user_id JOIN reports r ON r.id = s.report_id JOIN folders f ON f.id = r.folder_id
          WHERE s.enabled = 1 AND s.next_run_at <= @now ORDER BY s.next_run_at`, { now: t });

@@ -82,7 +82,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   api.use('/auth', createAuthRouter({ users, store, db, audit }));
   // Everything below needs a session and a CSRF token on writes (FR-3).
   api.use(requireAuth, csrfProtect, requirePasswordChange);
-  api.use('/users', createUsersRouter({ users, store }));
+  api.use('/users', createUsersRouter({ users, store, outputDir: config.outputDir }));
   api.use('/connections', createConnectionsRouter({ connections }));
   api.use('/folders', createFoldersRouter({ db, reports }));
   api.use('/reports', createReportsRouter({ reports, runs, cfg: config, audit }));

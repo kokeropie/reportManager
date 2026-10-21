@@ -31,7 +31,17 @@ function createReportsRouter({ reports, runs, cfg, audit }) {
   const notFound = (res) => res.status(404).json({ error: 'Not found' });
 
   r.get('/', async (req, res, next) => {
-    try { res.json(await reports.search(req.query.q)); } catch (e) { next(e); }
+    try { res.json(await reports.search(req.query.q, { role: req.session.role, userId: req.session.userId })); } catch (e) { next(e); }
+  });
+
+  // A viewer only reaches reports in folders they may open; anything else looks missing.
+  r.use('/:id', async (req, res, next) => {
+    try {
+      if (isAdmin(req)) return next();
+      const id = intParam(req.params.id);
+      if (Number.isNaN(id) || !(await reports.canAccess(id, req.session.userId, req.session.role))) return notFound(res);
+      next();
+    } catch (e) { next(e); }
   });
 
   r.get('/:id', async (req, res, next) => {

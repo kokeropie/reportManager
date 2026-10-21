@@ -18,10 +18,14 @@ const USERS = {
 };
 const SECRET_ROW = { id: 1, name: 'PTES', type: 'mssql', host: 'h', port: 1433, database_name: 'd', username: 'u', password_enc: 'v1:SECRET', trust_server_cert: 0 };
 
+const removed = [];
+
 async function start() {
   const users = {
     authenticate: async (u, p) => (USERS[u] && USERS[u].password === p ? USERS[u] : null),
-    list: async () => [], get: async () => null, countActiveAdmins: async () => 2,
+    list: async () => [], countActiveAdmins: async () => 2,
+    get: async (id) => (id === 2 ? { id: 2, role: 'viewer', disabled: 0 } : id === 1 ? { id: 1, role: 'admin', disabled: 0 } : null),
+    remove: async (id) => { removed.push(id); },
   };
   const store = { destroyForUser: async () => {} };
   const db = {
@@ -50,7 +54,7 @@ async function start() {
     run: async () => ({ runId: 'r1', reportName: 'PJTI', dataRows: 2, page: 1, rows: [] }),
     exportData: async () => ({ reportName: 'My: Report', grid: { columns: [{ width: 1, name: 'A' }], rowCount: 1, rows: [{ kind: 'header', cells: [{ value: 'A' }] }, { kind: 'detail', cells: [{ value: 'x,y' }] }] } }),
   };
-  api.use('/reports', createReportsRouter({ reports: { getRow: async () => ({ name: 'PJTI' }) }, runs, cfg: { pageSize: 100 }, audit }));
+  api.use('/reports', createReportsRouter({ reports: { getRow: async () => ({ name: 'PJTI' }), canAccess: async (id) => id !== 99 }, runs, cfg: { pageSize: 100 }, audit }));
   api.use('/audit', createAuditRouter({ audit }));
   app.use('/api', api);
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
@@ -125,6 +129,31 @@ test('auth, CSRF and role rules', async (t) => {
     assert.strictEqual((await c('POST', '/folders', { name: 'X' })).status, 404);
     assert.strictEqual((await c('DELETE', '/folders/1')).status, 404);
     assert.strictEqual((await c('GET', '/audit')).status, 404, 'audit log is admin-only');
+  });
+
+  await t.test('admin can delete a user, but not themselves; viewers cannot delete', async () => {
+    const v = client(base);
+    await v.login('viewer', 'viewer-pass-1');
+    assert.strictEqual((await v('DELETE', '/users/2')).status, 404);
+    const a = client(base);
+    await a.login('admin', 'admin-pass-1');
+    assert.strictEqual((await a('DELETE', '/users/1')).status, 400, 'own account');
+    assert.strictEqual((await a('DELETE', '/users/77')).status, 404);
+    assert.strictEqual((await a('DELETE', '/users/2')).status, 200);
+    assert.deepStrictEqual(removed, [2]);
+  });
+
+  await t.test('viewer gets 404 on a report in a folder they cannot open; admin does not', async () => {
+    const v = client(base);
+    await v.login('viewer', 'viewer-pass-1');
+    for (const [m, p] of [['GET', '/reports/99'], ['POST', '/reports/99/run'], ['POST', '/reports/99/export?format=csv'], ['GET', '/reports/99/runs/x']]) {
+      assert.strictEqual((await v(m, p, m === 'POST' ? {} : undefined)).status, 404, m + ' ' + p);
+    }
+    const a = client(base);
+    await a.login('admin', 'admin-pass-1');
+    assert.notStrictEqual((await a('POST', '/reports/99/run', {})).status, 404);
+    assert.strictEqual((await v('GET', '/folders/1/access')).status, 404, 'access lists are admin-only');
+    assert.strictEqual((await v('PUT', '/folders/1/access', { userIds: [] })).status, 404);
   });
 
   await t.test('viewer can run and export; both are audited with the computer details (FR-26a)', async () => {

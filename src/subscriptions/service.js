@@ -62,9 +62,9 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
   const userRoot = (userId) => resolveUnder(outputDir, String(parseInt(userId, 10)));
 
   // Reports in the admin-only Connection folder do not exist for viewers.
-  async function assertVisible(reportId, role) {
+  async function assertVisible(reportId, user) {
     const row = await db.one('SELECT r.id, r.name, f.is_system FROM reports r JOIN folders f ON f.id = r.folder_id WHERE r.id = @id', { id: reportId });
-    if (!row || (row.is_system && role !== 'admin')) throw bad('Not found', 404);
+    if (!row || (row.is_system && user.role !== 'admin') || !(await reports.canAccess(reportId, user.id, user.role))) throw bad('Not found', 404);
     return row;
   }
 
@@ -86,7 +86,7 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
     const b = body || {};
     const reportId = existing ? existing.report_id : parseInt(b.reportId, 10);
     if (!Number.isInteger(reportId)) throw bad('Choose a report');
-    const rep = await assertVisible(reportId, user.role);
+    const rep = await assertVisible(reportId, user);
     const format = b.format === undefined && existing ? existing.format : String(b.format || '').toLowerCase();
     if (!['csv', 'xlsx'].includes(format)) throw bad('Format must be csv or xlsx');
     const schedule = normalize(b.schedule === undefined && existing ? JSON.parse(existing.schedule) : b.schedule);
