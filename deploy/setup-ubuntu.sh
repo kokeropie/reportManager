@@ -24,17 +24,17 @@ ask_secret() { local v; read -r -s -p "$1: " v; echo >&2; echo "$v"; }
 step "1/6 Checking Node.js"
 if ! command -v node >/dev/null 2>&1; then
   cat <<'MSG'
-Node.js was not found. Install it, then run this script again. For example Node 20 LTS:
-  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+Node.js was not found. Install it, then run this script again. For example Node 24 LTS:
+  curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
   sudo apt-get install -y nodejs
-(The app needs Node 16 or newer.)
+(The app needs Node 20 or newer; use a currently supported LTS, 22 or 24.)
 MSG
   exit 1
 fi
 NODE_BIN="$(command -v node)"
 NODE_VER="$("$NODE_BIN" -v)"
 echo "Found Node $NODE_VER at $NODE_BIN"
-[ "${NODE_VER#v}" ] && [ "$(echo "${NODE_VER#v}" | cut -d. -f1)" -ge 16 ] || { echo "Node $NODE_VER is too old. Install Node 16 or newer." >&2; exit 1; }
+[ "${NODE_VER#v}" ] && [ "$(echo "${NODE_VER#v}" | cut -d. -f1)" -ge 20 ] || { echo "Node $NODE_VER is too old. Install Node 20 or newer (22 or 24 LTS recommended)." >&2; exit 1; }
 
 step "2/6 Checking dependencies"
 if [ -d node_modules/express ]; then

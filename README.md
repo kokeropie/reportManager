@@ -8,7 +8,7 @@ It has been tested against all 19 files in `sampleReport/` for parsing, expressi
 
 ## Requirements
 
-- Node.js 16 or newer. Windows Server 2012 R2 runs Node 16; plain 2012 is not officially supported by Node, so check `node -v` works there first. The dependencies are pinned so that nothing in the install needs a newer Node.
+- Node.js 20 or newer for the normal build (Ubuntu, Windows 10/11, Server 2016+). Windows Server 2012 R2 tops out at Node 16, so there is a separate `-node16.zip` release with older, pinned dependencies from `deploy/legacy/`. Node 16 is end-of-life and that build keeps known `npm audit` findings; use it only where the OS cannot run Node 20.
 - SQL Server 2016 or newer for the app's own data. No native Node modules are used, so `npm install` needs no compiler.
 
 ## Setup
@@ -60,11 +60,11 @@ More admins can be added from the **Users** page, or with `npm run create-admin 
 
 The app has no native modules, so a release zip built on any machine runs on the server without internet access, npm or a compiler.
 
-**On your own computer:** `bash deploy/package-release.sh` creates `release/report-server-<version>-<date>.zip` (the app plus production `node_modules`). Or clone the repository on the server and let the setup script run `npm ci`.
+**On your own computer:** `bash deploy/package-release.sh` creates three files in `release/`: `report-server-<version>-<date>.tar.gz` and `.zip` (Node 20+, current dependencies) and `report-server-<version>-<date>-node16.zip` (Node 16, legacy dependencies, for Windows Server 2012). Each contains the app plus production `node_modules`. Or clone the repository on the server and let the setup script run `npm ci`.
 
 **On the server (Windows Server 2012 R2 or newer):**
 
-1. Install Node.js 16 (64-bit `.msi` from https://nodejs.org/dist/latest-v16.x/). Check with `node -v`.
+1. Install Node.js (64-bit `.msi`). On Server 2012 R2 use Node 16 (https://nodejs.org/dist/latest-v16.x/) and the `-node16.zip` release; on Windows 10/11 or Server 2016+ use Node 20+ and the normal `.zip`. Check with `node -v`.
 2. Unzip the release, for example to `C:\apps\report-server`.
 3. Make sure SQL Server (2016 or newer, here or on another machine) allows TCP/IP and SQL logins. The setup script can create the database for you if `sqlcmd` is installed, or run `deploy\create-database.sql` yourself (header of that file explains how).
 4. In an **elevated** PowerShell, in the app folder:
@@ -95,7 +95,7 @@ To do the steps by hand instead: copy `.env.example` to `.env`, fill it in, test
 
 The same app runs on Ubuntu (or any systemd Linux). Nothing in `src/` is Windows-specific, and the app database is still SQL Server (this app does not need a Linux database).
 
-1. Install Node.js 16 or newer. For example Node 20 LTS: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs`.
+1. Install Node.js 20 or newer. For example Node 24 LTS: `curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs`.
 2. On your own computer run `bash deploy/package-release.sh`. It now builds both the `.zip` and a `report-server-<version>-<date>.tar.gz`. Copy the `.tar.gz` to the server and unpack it, for example `sudo tar -xzf report-server-*.tar.gz -C /opt` (gives `/opt/report-server`). Or clone the repository there and let the script run `npm ci`.
 3. Make sure SQL Server 2016 or newer (here or elsewhere) allows TCP/IP and SQL logins, and that this server can reach it (port 1433).
 4. In the app folder:
@@ -112,7 +112,7 @@ Not yet run on a real Ubuntu server, same as the Windows scripts. Paths in subsc
 
 ## Known notes
 
-- `npm audit` reports about 8 moderate findings in dependencies. They are in code paths this app does not use (Azure sign-in inside the SQL driver, the XML *builder*, UUID functions with a caller-supplied buffer). Upgrading would break the Node 16 pinning, so they are left as they are; revisit when the server moves to a newer Node.
+- `npm audit` reports 0 findings at the time of writing; `package.json` has `overrides` for `uuid` and `@azure/msal-node` to get there. Re-run it after any dependency change.
 - Exports build the whole result in memory before streaming the file out (grouping needs all rows), so a 500,000-row export of a wide report can use several hundred MB of RAM while it runs.
 - The PRD's option to allow stored procedures per report (FR-27) is not built. Only `SELECT` and `WITH` queries run.
 

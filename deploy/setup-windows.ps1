@@ -49,14 +49,14 @@ $node = @(Get-Command node.exe -ErrorAction SilentlyContinue)[0]
 if (-not $node) {
   Write-Host 'Node.js was not found.' -ForegroundColor Yellow
   Write-Host 'Install Node.js 16 (Windows 64-bit .msi) from https://nodejs.org/dist/latest-v16.x/ and run this script again.'
-  Write-Host 'Node 16 is the newest version that runs on Windows Server 2012 R2.'
+  Write-Host 'Node 16 is the newest version that runs on Windows Server 2012 R2 (use the -node16 release zip). On Windows 10/11 install Node 20+ and use the normal zip.'
   exit 1
 }
 $ver = (& node.exe -v).Trim()
 Write-Host "Found Node $ver at $($node.Definition)"
 $major = [int](($ver.TrimStart('v')).Split('.')[0])
 if ($major -lt 16) { throw "Node $ver is too old. Install Node 16." }
-if ($major -gt 16) { Write-Warning "Node $ver is newer than 16. That is fine if it runs on this server; the app is tested for 16." }
+if ($major -gt 16) { Write-Warning "Node $ver is newer than 16. Use the normal (not -node16) release zip with Node 20+; the -node16 zip has older dependencies." }
 
 # ---- 2. Dependencies ----
 Step '2/6 Checking dependencies'
