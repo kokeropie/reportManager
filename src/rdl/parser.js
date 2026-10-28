@@ -40,13 +40,13 @@ function textboxOf(contents) {
   return first(contents.Textbox);
 }
 
-const NAMED_COLORS = { white: 'FFFFFF', black: '000000', red: 'FF0000', green: '008000', blue: '0000FF', yellow: 'FFFF00', gray: '808080', grey: '808080', silver: 'C0C0C0', orange: 'FFA500', navy: '000080', maroon: '800000', lightgrey: 'D3D3D3', lightgray: 'D3D3D3', whitesmoke: 'F5F5F5' };
+const NAMED_COLORS = { white: 'FFFFFF', black: '000000', red: 'FF0000', green: '008000', blue: '0000FF', yellow: 'FFFF00', gray: '808080', grey: '808080', silver: 'C0C0C0', orange: 'FFA500', navy: '000080', maroon: '800000', lightgrey: 'D3D3D3', lightgray: 'D3D3D3', whitesmoke: 'F5F5F5', darkgray: 'A9A9A9', darkgrey: 'A9A9A9', dimgray: '696969', dimgrey: '696969', gainsboro: 'DCDCDC' };
 function colorOf(v) {
   const t = text(v).trim();
   if (/^#[0-9a-f]{6}$/i.test(t)) return t.slice(1).toUpperCase();
   return NAMED_COLORS[t.toLowerCase()] || null;
 }
-// Look and feel the Excel export reuses: fill, text colour, bold, size, alignment. Expressions are ignored.
+// Look and feel the Excel export reuses: fill, text colour, font, bold, size, alignment, border colour. Expressions are ignored.
 function styleOf(tb, run, para) {
   const box = (tb && typeof tb.Style === 'object' && tb.Style) || {};
   const r = (run && typeof run.style === 'object' && run.style) || {};
@@ -57,8 +57,12 @@ function styleOf(tb, run, para) {
   const bold = /^(bold|bolder|[6-9]00)$/i.test(weight);
   const sz = /^([\d.]+)pt$/i.exec(text(r.FontSize) || text(box.FontSize));
   const align = (text(pa.TextAlign) || text(r.TextAlign) || text(box.TextAlign)).toLowerCase();
+  const font = (text(r.FontFamily) || text(box.FontFamily)).trim();
+  const border = box.Border && typeof box.Border === 'object' ? colorOf(box.Border.Color) : null;
   const style = {};
   if (bg) style.bg = bg;
+  if (font && !font.startsWith('=')) style.font = font;
+  if (border) style.border = border;
   if (color) style.color = color;
   if (bold) style.bold = true;
   if (sz) style.size = parseFloat(sz[1]);
@@ -437,6 +441,7 @@ function parseRdl(xmlText) {
   const textboxes = arr(items.Textbox).map((tb) => ({
     top: inches(tb.Top) || 0,
     left: inches(tb.Left) || 0,
+    height: inches(tb.Height) || 0,
     cell: compileCell(tb, 1),
     style: tb.Style && tb.Style.TextAlign ? text(tb.Style.TextAlign) : null,
   })).sort((a, b) => a.top - b.top);

@@ -48,7 +48,7 @@ test('CSV: negative numbers are not mangled, negative-looking text is', () => {
   assert.strictEqual(csvText({ value: '-abc' }), "'-abc");
 });
 
-test('XLSX: bold frozen header, real numbers and dates, widths (FR-23, AC-3)', async () => {
+test('XLSX: bold header, real numbers and dates, widths (FR-23, AC-3)', async () => {
   const s = new PassThrough();
   const done = collect(s);
   await writeXlsx(s, grid, { sheetName: 'My/Report: v1' });
@@ -56,8 +56,8 @@ test('XLSX: bold frozen header, real numbers and dates, widths (FR-23, AC-3)', a
   await wb.xlsx.load(await done);
   const ws = wb.worksheets[0];
   assert.strictEqual(ws.name, 'My Report  v1');
-  assert.strictEqual(ws.views[0].state, 'frozen');
-  assert.strictEqual(ws.views[0].ySplit, 1);
+  assert.notStrictEqual(ws.views[0].state, 'frozen'); // the SSRS render does not freeze the header
+  assert.strictEqual(ws.views[0].showGridLines, false);
   assert.strictEqual(ws.getRow(1).getCell(1).font.bold, true);
   assert.strictEqual(ws.getRow(2).getCell(2).value, 1234.5);
   assert.strictEqual(typeof ws.getRow(2).getCell(2).value, 'number');
@@ -76,7 +76,7 @@ test('XLSX: title row, thin borders, RDL colours and merged cells like the SSRS 
     columns: [{ width: 1 }, { width: 1 }, { width: 1 }],
     heading: ['AR Report'], headingStyle: { size: 18 },
     rows: [
-      { kind: 'header', cells: [{ value: 'Name', style: { bg: '365838', color: 'FFFFFF' } }, { value: null, span: 2 }] },
+      { kind: 'header', cells: [{ value: 'Name', style: { bg: '365838', color: 'FFFFFF', font: 'Times New Roman', border: 'A9A9A9' } }, { value: null, span: 2 }] },
       { kind: 'detail', cells: [{ value: 'A', vspan: 2 }, { value: 'x' }, { value: 5, format: 'N2' }] },
       { kind: 'detail', cells: [{ value: null }, { value: 'y' }, { value: 6, format: 'N2' }] },
     ],
@@ -89,6 +89,10 @@ test('XLSX: title row, thin borders, RDL colours and merged cells like the SSRS 
   assert.strictEqual(ws.getCell('A3').fill.fgColor.argb, 'FF365838');
   assert.strictEqual(ws.getCell('A3').font.color.argb, 'FFFFFFFF');
   assert.strictEqual(ws.getCell('A3').border.left.style, 'thin');
+  assert.strictEqual(ws.getCell('A3').border.left.color.argb, 'FFA9A9A9');
+  assert.strictEqual(ws.getCell('A3').font.name, 'Times New Roman');
+  assert.ok(!ws.getCell('A3').font.bold, 'bold comes from the RDL, not from the row kind');
+  assert.strictEqual(ws.getCell('A3').alignment.wrapText, true);
   assert.strictEqual(ws.getCell('C4').numFmt, '#,##0.00');
   const merged = Object.keys(ws._merges);
   assert.ok(merged.includes('A1') && merged.includes('B3') && merged.includes('A4'), 'title, column span and row-group label are merged');

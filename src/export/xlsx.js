@@ -42,20 +42,29 @@ function safeValue(v) {
 
 const INVALID_SHEET_CHARS = /[\\/?*[\]:]/g;
 
-const THIN = { style: 'thin', color: { argb: 'FF808080' } };
-const BORDER = { top: THIN, left: THIN, bottom: THIN, right: THIN };
 const argb = (hex) => 'FF' + hex;
 
-// Look taken from the RDL (fill, text colour, bold, size, alignment) plus thin borders, like the SSRS Excel render.
+// Look taken from the RDL (font, fill, text colour, bold, size, alignment, border colour), like the SSRS Excel render:
+// thin borders (DarkGray unless the RDL says otherwise), wrapped text, top-aligned. Bold comes from the RDL only;
+// a cell with no RDL style falls back to bold for header/total rows.
 function applyStyle(cell, style, { bold, numeric }) {
   const st = style || {};
-  cell.border = BORDER;
+  const side = { style: 'thin', color: { argb: argb(st.border || 'A9A9A9') } };
+  cell.border = { top: side, left: side, bottom: side, right: side };
   const font = { size: st.size || 10 };
-  if (bold || st.bold) font.bold = true;
+  if (st.font) font.name = st.font;
+  if (style ? st.bold : bold) font.bold = true;
   if (st.color) font.color = { argb: argb(st.color) };
   cell.font = font;
   if (st.bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(st.bg) } };
-  cell.alignment = { horizontal: st.align || (numeric ? 'right' : 'left'), vertical: 'top' };
+  cell.alignment = { horizontal: st.align || (numeric ? 'right' : 'left'), vertical: 'top', wrapText: true };
+}
+
+function titleFont(grid) {
+  const hs = grid.headingStyle;
+  const f = { size: (hs && hs.size) || 18, bold: hs ? !!hs.bold : true, color: { argb: argb((hs && hs.color) || '365838') } };
+  if (hs && hs.font) f.name = hs.font;
+  return f;
 }
 
 // Streaming writer: rows are committed as they are added, so memory use does not grow with the result.
@@ -66,25 +75,23 @@ async function writeXlsx(res, grid, { sheetName }) {
   const title = grid.heading && grid.heading[0];
   const subtitle = title && grid.subtitle;
   const info = title ? grid.info || [] : [];
-  const offset = title ? 2 + (subtitle ? 1 : 0) + info.length : 0;
-  const headerCount = grid.multi ? 0 : grid.rows.filter((r) => r.kind === 'header').length;
   const ws = wb.addWorksheet(String(sheetName || 'Report').replace(INVALID_SHEET_CHARS, ' ').slice(0, 31) || 'Report', {
-    views: headerCount ? [{ state: 'frozen', ySplit: offset + headerCount }] : [],
+    views: [{ showGridLines: false }], // the SSRS render has no gridlines and no frozen header
   });
-  ws.columns = grid.columns.map((c) => ({ width: Math.min(60, Math.max(8, Math.round((c.width || 1) * 13))) }));
+  ws.columns = grid.columns.map((c) => ({ width: Math.min(60, Math.max(8, Math.round((c.width || 1) * 96 / 7 * 100) / 100)) })); // 1in = 96px = 13.71 characters
 
   let rowNo = 0;
   if (title) {
     const row = ws.addRow([title]);
     rowNo++;
     const cell = row.getCell(1);
-    cell.font = { size: (grid.headingStyle && grid.headingStyle.size) || 18, bold: true, color: { argb: argb((grid.headingStyle && grid.headingStyle.color) || '365838') } };
+    cell.font = titleFont(grid);
     if (grid.columns.length > 1) merge(ws, rowNo, 1, rowNo, grid.columns.length);
     row.commit();
     if (subtitle) {
       const sub = ws.addRow([subtitle]);
       rowNo++;
-      sub.getCell(1).font = { size: (grid.headingStyle && grid.headingStyle.size) || 18, bold: true, color: { argb: argb((grid.headingStyle && grid.headingStyle.color) || '365838') } };
+      sub.getCell(1).font = titleFont(grid);
       if (grid.columns.length > 1) merge(ws, rowNo, 1, rowNo, grid.columns.length);
       sub.commit();
     }
@@ -92,8 +99,10 @@ async function writeXlsx(res, grid, { sheetName }) {
       ws.addRow(line.map((v) => safeValue(/^[=+@]/.test(v) ? "'" + v : v))).commit();
       rowNo++;
     }
-    ws.addRow([]).commit();
-    rowNo++;
+    if (grid.titleGap !== 0) {
+      ws.addRow([]).commit();
+      rowNo++;
+    }
   }
 
   const carry = {}; // column -> { left, style } for a label that is merged down over later rows

@@ -361,7 +361,10 @@ function renderGrid(def, dbRows, paramValues, opts = {}) {
     const texts = def.textboxes.filter((t) => t.top === top).sort((a, b) => a.left - b.left).map(evalBox).filter((x) => x !== '');
     if (texts.length > 1) info.push(texts);
   }
-  return { columns, rows: out, heading, subtitle, info, headingStyle, warnings: [...warnings], rowCount: rows.length, multi: sections.length > 1 };
+  // SSRS leaves an empty row under the heading block only when the table starts clearly below the last text box
+  const blockBottom = Math.max(0, ...def.textboxes.filter((t) => t.top < (def.tableTop || 0)).map((t) => t.top + (t.height || 0)));
+  const titleGap = def.tableTop && blockBottom ? (def.tableTop - blockBottom >= 0.15 ? 1 : 0) : 1;
+  return { columns, rows: out, heading, subtitle, info, headingStyle, titleGap, warnings: [...warnings], rowCount: rows.length, multi: sections.length > 1 };
 }
 
 function displayOf(cell) {
