@@ -121,7 +121,7 @@ async function writeXlsx(res, grid, { sheetName }) {
     for (const c of r.cells) {
       col++;
       let v = c.value;
-      v = safeValue(v === undefined ? null : v);
+      v = safeValue(v === undefined || v === '' ? null : v); // '' becomes a truly empty cell, so Fill Handle and Ctrl+Arrow treat it as blank
       if (typeof v === 'string' && /^[=+@]/.test(v)) v = "'" + v; // never let text become a formula
       values.push(v);
       let nf = null;
