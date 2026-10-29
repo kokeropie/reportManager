@@ -87,7 +87,7 @@ function compileCell(tb, colSpan) {
   const format = runs.map((r) => fmtOf(r.style)).find(Boolean) || fmtOf(tb.Style) || null;
   const firstPara = paras[0];
   const firstRun = runs.find((r) => r.value !== '\n') || runs[0];
-  return { parts: runs.map((r) => (r.value === '\n' ? { literal: '\n' } : compile(r.value))), format, style: styleOf(tb, firstRun, firstPara), colSpan };
+  return { parts: runs.map((r) => (r.value === '\n' ? { literal: '\n', functions: [], fields: [], params: [] } : compile(r.value))), format, style: styleOf(tb, firstRun, firstPara), colSpan };
 }
 
 // ---- 2008+ Tablix ----
