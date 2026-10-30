@@ -35,6 +35,9 @@ NODE_BIN="$(command -v node)"
 NODE_VER="$("$NODE_BIN" -v)"
 echo "Found Node $NODE_VER at $NODE_BIN"
 [ "${NODE_VER#v}" ] && [ "$(echo "${NODE_VER#v}" | cut -d. -f1)" -ge 20 ] || { echo "Node $NODE_VER is too old. Install Node 20 or newer (22 or 24 LTS recommended)." >&2; exit 1; }
+if [ "$(printf '%s\n24.22.1\n' "${NODE_VER#v}" | sort -V | head -1)" != "24.22.1" ] && [ "$(echo "${NODE_VER#v}" | cut -d. -f1)" = "24" ]; then
+  echo "WARNING: Node $NODE_VER has the Brotli HTTP2Shell vulnerability (CVE-2026-111497). Upgrade to 24.22.1 or newer." >&2
+fi
 
 step "2/6 Checking dependencies"
 if [ -d node_modules/express ]; then

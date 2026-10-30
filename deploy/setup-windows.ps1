@@ -48,8 +48,8 @@ Step '1/6 Checking Node.js'
 $node = @(Get-Command node.exe -ErrorAction SilentlyContinue)[0]
 if (-not $node) {
   Write-Host 'Node.js was not found.' -ForegroundColor Yellow
-  Write-Host 'Install Node.js 16 (Windows 64-bit .msi) from https://nodejs.org/dist/latest-v16.x/ and run this script again.'
-  Write-Host 'Node 16 is the newest version that runs on Windows Server 2012 R2 (use the -node16 release zip). On Windows 10/11 install Node 20+ and use the normal zip.'
+  Write-Host 'Windows 10/11 or Server 2016+: install Node.js 24.22.1 or newer (64-bit .msi) from https://nodejs.org/ and use the normal zip.'
+  Write-Host 'Windows Server 2012 R2: install Node 16 from https://nodejs.org/dist/latest-v16.x/ and use the -node16 zip (Node 16 is the newest it runs).'
   exit 1
 }
 $ver = (& node.exe -v).Trim()
@@ -57,6 +57,7 @@ Write-Host "Found Node $ver at $($node.Definition)"
 $major = [int](($ver.TrimStart('v')).Split('.')[0])
 if ($major -lt 16) { throw "Node $ver is too old. Install Node 16." }
 if ($major -gt 16) { Write-Warning "Node $ver is newer than 16. Use the normal (not -node16) release zip with Node 20+; the -node16 zip has older dependencies." }
+if ($major -eq 24 -and [version]($ver.TrimStart('v')) -lt [version]'24.22.1') { Write-Warning "Node $ver has the Brotli HTTP2Shell vulnerability (CVE-2026-111497). Upgrade to 24.22.1 or newer." }
 
 # ---- 2. Dependencies ----
 Step '2/6 Checking dependencies'
