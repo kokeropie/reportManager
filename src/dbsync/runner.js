@@ -9,7 +9,7 @@ const TICK_MS = 30 * 1000;
 const defaultOpen = (part) => (part.host ? sshTarget(part) : localTarget());
 
 // Runs the copy-and-restore or the clean-up, one at a time per process, and keeps a history row for each.
-function createRunner({ db, service, now = () => new Date(), open = defaultOpen, log = console }) {
+function createRunner({ db, service, now = () => new Date(), open = defaultOpen, log = console, timingLog }) {
   let current = null;
 
   async function finish(id, res) {
@@ -26,7 +26,7 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
       dest = await open(cfg.dest).open();
       if (kind === 'sync') {
         source = await open(cfg.source).open();
-        return await runSync({ cfg, source, dest, now, onLine });
+        return await runSync({ cfg, source, dest, now, onLine, timingLog, runId: id });
       }
       return await runCleanup({ cfg, dest, onLine });
     } catch (e) {

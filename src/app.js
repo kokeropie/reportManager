@@ -19,6 +19,7 @@ const { createAuditRouter } = require('./audit/routes');
 const { createSubscriptionService } = require('./subscriptions/service');
 const { createSubscriptionsRouter } = require('./subscriptions/routes');
 const { createScheduler } = require('./subscriptions/scheduler');
+const { createTimingLog } = require('./dbsync/timingLog');
 const { createDbSyncService } = require('./dbsync/service');
 const { createRunner, createDbSyncScheduler } = require('./dbsync/runner');
 const { createDbSyncRouter } = require('./dbsync/routes');
@@ -77,7 +78,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   const subs = createSubscriptionService({ db, reports, outputDir: config.outputDir, onChange: () => scheduler.wake() });
 
   const dbsync = createDbSyncService({ db, encryptionKey: config.encryptionKey });
-  const dbsyncRunner = createRunner({ db, service: dbsync });
+  const dbsyncRunner = createRunner({ db, service: dbsync, timingLog: createTimingLog({ dir: config.logDir }) });
   const dbsyncScheduler = createDbSyncScheduler({ db, runner: dbsyncRunner });
 
   // Unauthenticated liveness check for the Windows service / monitoring. Reveals nothing but up/down.

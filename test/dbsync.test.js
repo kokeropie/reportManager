@@ -109,6 +109,22 @@ test('runSync copies only the newest file per database, extracts and restores it
   } finally { w.done(); }
 });
 
+test('runSync writes copy / verify / unzip / restore timings per file to the separate timing log', async () => {
+  const w = workspace();
+  const logDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'dbsync-tlog-'));
+  try {
+    w.gz('dev_arjuna_20261103_000000.sql.gz', 'SELECT 1; -- arjuna');
+    w.gz('dev_kenji_20261103_000000.sql.gz', 'SELECT 2; -- kenji');
+    const { createTimingLog } = require('../src/dbsync/timingLog');
+    const tl = createTimingLog({ dir: logDir });
+    const res = await runSync({ cfg: w.cfg, source: localTarget(), dest: localTarget(), now: () => new Date(2026, 10, 3, 2), timingLog: tl, runId: 7 });
+    assert.strictEqual(res.ok, true, res.lines.join('\n'));
+    const text = fs.readFileSync(path.join(logDir, 'dbsync-timing.log'), 'utf8');
+    for (const step of ['copy', 'verify (gzip -t)', 'unzip', 'restore', 'TOTAL']) assert.match(text, new RegExp(`run=7 \\| dev_kenji_20261103_000000.sql.gz \\| ${step.replace(/[()]/g, '\\$&')} \\| OK`));
+    assert.ok(!/password/i.test(text));
+  } finally { w.done(); fs.rmSync(logDir, { recursive: true, force: true }); }
+});
+
 test('runSync: a broken file fails that database only; a stale date is flagged', async () => {
   const w = workspace();
   try {
