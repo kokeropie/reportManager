@@ -20,7 +20,10 @@ stage() {
   cp "$2" "$APP/package.json"
   cp "$3" "$APP/package-lock.json"
   rm -rf "$APP/deploy/legacy"
-  (cd "$APP" && npm ci --omit=dev --no-audit --no-fund >/dev/null)
+  (cd "$APP" && npm ci --omit=dev --omit=optional --no-audit --no-fund >/dev/null)
+  # ssh2 only offers an optional native speed-up (never built here); drop its build recipe and prove it loads without it
+  rm -f "$APP/node_modules/ssh2/lib/protocol/crypto/binding.gyp"
+  (cd "$APP" && node -e "require('ssh2')")
   # a native binary would break the "same node_modules everywhere" assumption: fail loudly
   if find "$APP/node_modules" -name '*.node' -o -name 'binding.gyp' | grep -q .; then
     echo "A native module was found in node_modules; the release would not be portable." >&2
