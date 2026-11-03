@@ -4,6 +4,7 @@ import { renderReport } from './views/viewer.js';
 import { renderConnections } from './views/connections.js';
 import { renderUsers } from './views/users.js';
 import { renderAudit } from './views/audit.js';
+import { renderDbSync } from './views/dbsync.js';
 import { renderSubscriptions, renderFiles, renderPassword } from './views/subscriptions.js';
 
 const view = document.getElementById('view');
@@ -16,6 +17,7 @@ const tabs = [
   { id: 'files', label: 'My files', href: '#/files' },
   { id: 'connections', label: 'Connections', href: '#/connections', admin: true },
   { id: 'users', label: 'Users', href: '#/users', admin: true },
+  { id: 'db-sync', label: 'DB Sync', href: '#/db-sync', admin: true },
   { id: 'audit', label: 'Audit log', href: '#/audit', admin: true },
 ];
 
@@ -26,7 +28,7 @@ function parseHash() {
 
 async function route() {
   const { name, arg } = parseHash();
-  const active = ['subscriptions', 'files'].includes(name) ? name : name === 'connections' ? 'connections' : name === 'users' ? 'users' : name === 'audit' ? 'audit' : 'folders';
+  const active = ['subscriptions', 'files'].includes(name) ? name : name === 'connections' ? 'connections' : name === 'users' ? 'users' : name === 'audit' ? 'audit' : name === 'db-sync' ? 'db-sync' : 'folders';
   for (const b of nav.children) b.classList.toggle('active', b.dataset.id === active);
   view.replaceChildren();
   try {
@@ -36,6 +38,7 @@ async function route() {
     else if (name === 'connections' && me.role === 'admin') await renderConnections();
     else if (name === 'users' && me.role === 'admin') await renderUsers();
     else if (name === 'audit' && me.role === 'admin') await renderAudit();
+    else if (name === 'db-sync' && me.role === 'admin') await renderDbSync();
     else if (name === 'folder' && /^\d+$/.test(arg)) await renderFolder(me, parseInt(arg, 10));
     else if (name === 'report' && /^\d+$/.test(arg)) await renderReport(me, parseInt(arg, 10));
     else if (name === 'search') await renderSearch(me, arg);

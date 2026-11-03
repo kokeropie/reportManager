@@ -42,6 +42,8 @@ function safeValue(v) {
 
 const INVALID_SHEET_CHARS = /[\\/?*[\]:]/g;
 
+// Every cell uses Calibri; the RDL's font name is deliberately ignored (size, bold and colour still come from it).
+const FONT = 'Calibri';
 const argb = (hex) => 'FF' + hex;
 
 // Look taken from the RDL (font, fill, text colour, bold, size, alignment, border colour), like the SSRS Excel render:
@@ -51,8 +53,7 @@ function applyStyle(cell, style, { bold, numeric }) {
   const st = style || {};
   const side = { style: 'thin', color: { argb: argb(st.border || 'A9A9A9') } };
   cell.border = { top: side, left: side, bottom: side, right: side };
-  const font = { size: st.size || 10 };
-  if (st.font) font.name = st.font;
+  const font = { name: FONT, size: st.size || 10 };
   if (style ? st.bold : bold) font.bold = true;
   if (st.color) font.color = { argb: argb(st.color) };
   cell.font = font;
@@ -62,8 +63,7 @@ function applyStyle(cell, style, { bold, numeric }) {
 
 function titleFont(grid) {
   const hs = grid.headingStyle;
-  const f = { size: (hs && hs.size) || 18, bold: hs ? !!hs.bold : true, color: { argb: argb((hs && hs.color) || '365838') } };
-  if (hs && hs.font) f.name = hs.font;
+  const f = { name: FONT, size: (hs && hs.size) || 18, bold: hs ? !!hs.bold : true, color: { argb: argb((hs && hs.color) || '365838') } };
   return f;
 }
 

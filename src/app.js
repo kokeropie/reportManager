@@ -19,6 +19,9 @@ const { createAuditRouter } = require('./audit/routes');
 const { createSubscriptionService } = require('./subscriptions/service');
 const { createSubscriptionsRouter } = require('./subscriptions/routes');
 const { createScheduler } = require('./subscriptions/scheduler');
+const { createDbSyncService } = require('./dbsync/service');
+const { createRunner, createDbSyncScheduler } = require('./dbsync/runner');
+const { createDbSyncRouter } = require('./dbsync/routes');
 const { createPools, execute } = require('./runner/pools');
 const { Limiter } = require('./runner/limiter');
 const { RunStore } = require('./runner/runStore');
@@ -73,6 +76,10 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   const scheduler = createScheduler({ db, runs, audit, outputDir: config.outputDir, retentionDays: config.outputRetentionDays, keepFiles: config.subscriptionKeepFiles });
   const subs = createSubscriptionService({ db, reports, outputDir: config.outputDir, onChange: () => scheduler.wake() });
 
+  const dbsync = createDbSyncService({ db, encryptionKey: config.encryptionKey });
+  const dbsyncRunner = createRunner({ db, service: dbsync });
+  const dbsyncScheduler = createDbSyncScheduler({ db, runner: dbsyncRunner });
+
   // Unauthenticated liveness check for the Windows service / monitoring. Reveals nothing but up/down.
   app.get('/healthz', async (req, res) => {
     try { await db.one('SELECT 1 AS ok'); res.json({ ok: true }); } catch (e) { res.status(503).json({ ok: false }); }
@@ -90,6 +97,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   api.use('/server-folders', createServerFoldersRouter({ outputDir: config.outputDir }));
   api.use('/subscriptions', createSubscriptionsRouter({ subs, audit }));
   api.use('/audit', createAuditRouter({ audit }));
+  api.use('/db-sync', createDbSyncRouter({ service: dbsync, runner: dbsyncRunner, audit }));
 
   // FR-2a: admin switch for "single session per user".
   api.get('/settings', requireAdmin, async (req, res, next) => {
@@ -121,7 +129,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
     res.status(status).json(body);
   });
 
-  return { app, users, store, pools, scheduler };
+  return { app, users, store, pools, scheduler, dbsyncScheduler };
 }
 
 module.exports = { createApp };

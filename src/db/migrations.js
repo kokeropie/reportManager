@@ -130,6 +130,47 @@ const MIGRATIONS = [
   );
   CREATE INDEX ix_folder_access_user ON folder_access(user_id);
   `,
+  // Nightly copy of the newest MySQL dumps from a backup server, restore, and clean-up (src/dbsync). One settings row.
+  `
+  CREATE TABLE dbsync_config (
+    id               INT NOT NULL PRIMARY KEY CHECK (id = 1),
+    enabled          BIT NOT NULL CONSTRAINT df_dbsync_enabled DEFAULT 0,
+    src_host         NVARCHAR(255) NOT NULL CONSTRAINT df_dbsync_src_host DEFAULT '',
+    src_port         INT NOT NULL CONSTRAINT df_dbsync_src_port DEFAULT 22,
+    src_user         NVARCHAR(100) NOT NULL CONSTRAINT df_dbsync_src_user DEFAULT '',
+    src_password_enc NVARCHAR(2000) NULL,
+    src_dir          NVARCHAR(300) NOT NULL CONSTRAINT df_dbsync_src_dir DEFAULT '/home/backup_db',
+    src_hostkey      NVARCHAR(100) NULL,
+    dst_host         NVARCHAR(255) NOT NULL CONSTRAINT df_dbsync_dst_host DEFAULT '',
+    dst_port         INT NOT NULL CONSTRAINT df_dbsync_dst_port DEFAULT 22,
+    dst_user         NVARCHAR(100) NOT NULL CONSTRAINT df_dbsync_dst_user DEFAULT '',
+    dst_password_enc NVARCHAR(2000) NULL,
+    dst_dir          NVARCHAR(300) NOT NULL CONSTRAINT df_dbsync_dst_dir DEFAULT '/home/mysqlbackup',
+    dst_hostkey      NVARCHAR(100) NULL,
+    my_host          NVARCHAR(255) NOT NULL CONSTRAINT df_dbsync_my_host DEFAULT 'localhost',
+    my_port          INT NOT NULL CONSTRAINT df_dbsync_my_port DEFAULT 3306,
+    my_user          NVARCHAR(100) NOT NULL CONSTRAINT df_dbsync_my_user DEFAULT '',
+    my_password_enc  NVARCHAR(2000) NULL,
+    items            NVARCHAR(2000) NOT NULL CONSTRAINT df_dbsync_items DEFAULT '[{"prefix":"dev_arjuna","database":"dev_arjuna"},{"prefix":"dev_kenji","database":"dev_kenji"}]',
+    sync_schedule    NVARCHAR(500) NOT NULL CONSTRAINT df_dbsync_sync DEFAULT '{"type":"daily","time":"02:00"}',
+    cleanup_schedule NVARCHAR(500) NOT NULL CONSTRAINT df_dbsync_clean DEFAULT '{"type":"daily","time":"18:00"}',
+    next_sync_at     DATETIME2 NULL,
+    next_cleanup_at  DATETIME2 NULL,
+    updated_at       DATETIME2 NOT NULL CONSTRAINT df_dbsync_updated DEFAULT SYSUTCDATETIME()
+  );
+  INSERT INTO dbsync_config (id) VALUES (1);
+  CREATE TABLE dbsync_runs (
+    id          BIGINT IDENTITY(1,1) PRIMARY KEY,
+    kind        NVARCHAR(10) NOT NULL CHECK (kind IN ('sync','cleanup')),
+    trigger_by  NVARCHAR(10) NOT NULL,
+    started_at  DATETIME2 NOT NULL,
+    finished_at DATETIME2 NULL,
+    status      NVARCHAR(10) NOT NULL,
+    summary     NVARCHAR(500) NULL,
+    log         NVARCHAR(MAX) NULL
+  );
+  CREATE INDEX ix_dbsync_runs ON dbsync_runs(id DESC);
+  `,
 ];
 
 const DEFAULT_FOLDERS = [

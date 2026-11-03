@@ -90,7 +90,7 @@ test('XLSX: title row, thin borders, RDL colours and merged cells like the SSRS 
   assert.strictEqual(ws.getCell('A3').font.color.argb, 'FFFFFFFF');
   assert.strictEqual(ws.getCell('A3').border.left.style, 'thin');
   assert.strictEqual(ws.getCell('A3').border.left.color.argb, 'FFA9A9A9');
-  assert.strictEqual(ws.getCell('A3').font.name, 'Times New Roman');
+  assert.strictEqual(ws.getCell('A3').font.name, 'Calibri', 'RDL font is ignored, Calibri always');
   assert.ok(!ws.getCell('A3').font.bold, 'bold comes from the RDL, not from the row kind');
   assert.strictEqual(ws.getCell('A3').alignment.wrapText, true);
   assert.strictEqual(ws.getCell('C4').numFmt, '#,##0.00');
