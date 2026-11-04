@@ -127,6 +127,10 @@ function fakeDb(sub) {
   const db = {
     state,
     query: async (sql, p) => {
+      if (/UPDATE subscriptions SET next_run_at/.test(sql)) {
+        if (+state.sub.next_run_at !== +p.old) return Object.assign([], { affectedRows: 0 });
+        state.sub.next_run_at = p.next; state.claims++; return Object.assign([], { affectedRows: 1 });
+      }
       if (/FROM subscriptions s/.test(sql)) return state.sub.enabled && state.sub.next_run_at <= p.now ? [{ ...state.sub }] : [];
       if (/INSERT INTO subscription_runs/.test(sql)) { state.runs.push({ ...p, rid: state.runs.length + (state.deleted || 0) }); return []; }
       if (/UPDATE subscriptions SET last_run_at/.test(sql)) {
@@ -141,10 +145,6 @@ function fakeDb(sub) {
       throw new Error('unexpected SQL ' + sql);
     },
     one: async (sql, p) => {
-      if (/OUTPUT INSERTED.id/.test(sql) && /UPDATE subscriptions SET next_run_at/.test(sql)) {
-        if (+state.sub.next_run_at !== +p.old) return null;
-        state.sub.next_run_at = p.next; state.claims++; return { id: p.id };
-      }
       throw new Error('unexpected SQL ' + sql);
     },
   };
@@ -225,11 +225,13 @@ test('service: create validates, scopes to the owner, hides the Connection folde
   const db = {
     one: async (sql, p) => {
       if (/FROM reports r JOIN folders/.test(sql)) return p.id === 9 ? { id: 9, name: 'Secret', is_system: 1 } : { id: 3, name: 'PJTI', is_system: 0 };
-      if (/INSERT INTO subscriptions/.test(sql)) { rows.push({ ...p, id: 11, report_name: 'PJTI', report_id: p.reportId, user_id: p.userId, enabled: 1, params: p.params, schedule: p.schedule, folder: p.folder }); return { id: 11 }; }
       if (/WHERE s.id = @id AND s.user_id/.test(sql)) return p.userId === 5 ? rows[0] : null;
       throw new Error('unexpected ' + sql);
     },
-    query: async () => [],
+    query: async (sql, p) => {
+      if (/INSERT INTO subscriptions/.test(sql)) { rows.push({ ...p, id: 11, report_name: 'PJTI', report_id: p.reportId, user_id: p.userId, enabled: 1, params: p.params, schedule: p.schedule, folder: p.folder }); return Object.assign([], { insertId: 11 }); }
+      return [];
+    },
   };
   const reports = { getRow: async () => ({}), loadDef: async () => def, canAccess: async (id) => id !== 4 };
   const svc = createSubscriptionService({ db, reports, outputDir: '/tmp/x', now: () => L(2026, 10, 8, 7) });

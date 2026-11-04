@@ -14,7 +14,7 @@ function values() {
   const f = new FormData(form);
   return {
     code: f.get('code'), server: f.get('server'), port: f.get('port'), database: f.get('database'),
-    user: f.get('user'), password: f.get('password'), trustCert: f.get('trustCert') === 'on', createDb: f.get('createDb') === 'on',
+    user: f.get('user'), password: f.get('password'), createDb: f.get('createDb') === 'on',
     adminUsername: f.get('adminUsername'), adminPassword: f.get('adminPassword'), encryptionKey: f.get('encryptionKey'),
   };
 }

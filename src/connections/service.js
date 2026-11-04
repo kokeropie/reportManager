@@ -47,13 +47,12 @@ function createConnectionService(db, encryptionKey, { onChange } = {}) {
     },
     async create(v) {
       if (await db.one('SELECT id FROM connections WHERE name = @name', { name: v.name })) throw conflict();
-      const row = await db.one(
+      const ins = await db.query(
         `INSERT INTO connections (name, type, host, port, database_name, username, password_enc, trust_server_cert)
-         OUTPUT INSERTED.*
          VALUES (@name, @type, @host, @port, @database, @username, @pw, @trust)`,
         { ...v, pw: encrypt(v.password, encryptionKey), trust: v.trustServerCert }
       );
-      return publicConnection(row, 0);
+      return publicConnection(await db.one('SELECT * FROM connections WHERE id = @id', { id: ins.insertId }), 0);
     },
     async update(id, v) {
       const dup = await db.one('SELECT id FROM connections WHERE name = @name AND id <> @id', { name: v.name, id });
@@ -61,7 +60,7 @@ function createConnectionService(db, encryptionKey, { onChange } = {}) {
       await db.query(
         `UPDATE connections SET name=@name, type=@type, host=@host, port=@port, database_name=@database,
            username=@username, trust_server_cert=@trust,
-           password_enc = COALESCE(@pw, password_enc), updated_at = SYSUTCDATETIME()
+           password_enc = COALESCE(@pw, password_enc), updated_at = UTC_TIMESTAMP(3)
          WHERE id=@id`,
         { id, ...v, trust: v.trustServerCert, pw: v.password ? encrypt(v.password, encryptionKey) : null }
       );

@@ -44,13 +44,11 @@ function createUserService(db) {
       const exists = await db.one('SELECT id FROM users WHERE username = @username', { username });
       if (exists) throw Object.assign(new Error('Username already exists'), { status: 409 });
       const hash = await bcrypt.hash(password, 10);
-      const row = await db.one(
-        `INSERT INTO users (username, password_hash, role, must_change_password)
-         OUTPUT INSERTED.id, INSERTED.username, INSERTED.role, INSERTED.disabled, INSERTED.must_change_password, INSERTED.created_at
-         VALUES (@username, @hash, @role, @mustChange)`,
+      const ins = await db.query(
+        'INSERT INTO users (username, password_hash, role, must_change_password) VALUES (@username, @hash, @role, @mustChange)',
         { username, hash, role, mustChange: !!mustChange }
       );
-      return publicUser(row);
+      return publicUser(await this.get(ins.insertId));
     },
     async update(id, { role, disabled }) {
       if (role !== undefined && !ROLES.includes(role)) throw Object.assign(new Error('Role must be admin or viewer'), { status: 400 });
@@ -74,12 +72,12 @@ function createUserService(db) {
     },
     // Removes the account with its sessions and subscriptions (run history goes with them). Audit rows keep the username.
     async remove(id) {
-      await db.query(`SET XACT_ABORT ON; BEGIN TRANSACTION;
-        DELETE FROM sessions WHERE user_id = @id;
-        DELETE FROM subscriptions WHERE user_id = @id;
-        DELETE FROM subscription_runs WHERE user_id = @id;
-        DELETE FROM users WHERE id = @id;
-        COMMIT TRANSACTION;`, { id });
+      await db.transaction(async (tx) => {
+        await tx.query('DELETE FROM sessions WHERE user_id = @id', { id });
+        await tx.query('DELETE FROM subscriptions WHERE user_id = @id', { id });
+        await tx.query('DELETE FROM subscription_runs WHERE user_id = @id', { id });
+        await tx.query('DELETE FROM users WHERE id = @id', { id });
+      });
     },
     async countActiveAdmins() {
       return (await db.one(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0`)).n;

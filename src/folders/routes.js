@@ -43,8 +43,8 @@ function createFoldersRouter({ db, reports }) {
     try {
       const name = cleanName((req.body || {}).name);
       if (await db.one('SELECT id FROM folders WHERE name = @name', { name })) throw bad('A folder with that name already exists', 409);
-      const f = await db.one('INSERT INTO folders (name) OUTPUT INSERTED.id, INSERTED.name VALUES (@name)', { name });
-      res.status(201).json({ id: f.id, name: f.name, isSystem: false, reportCount: 0 });
+      const ins = await db.query('INSERT INTO folders (name) VALUES (@name)', { name });
+      res.status(201).json({ id: ins.insertId, name, isSystem: false, reportCount: 0 });
     } catch (e) { next(e); }
   });
 
@@ -101,11 +101,10 @@ function createFoldersRouter({ db, reports }) {
       }
       const params = { f: f.id };
       const values = ids.map((id, i) => { params['u' + i] = id; return `(@f, @u${i})`; });
-      await db.query(
-        `SET XACT_ABORT ON; BEGIN TRANSACTION;
-         DELETE FROM folder_access WHERE folder_id = @f;
-         ${values.length ? `INSERT INTO folder_access (folder_id, user_id) VALUES ${values.join(',')};` : ''}
-         COMMIT TRANSACTION;`, params);
+      await db.transaction(async (tx) => {
+        await tx.query('DELETE FROM folder_access WHERE folder_id = @f', { f: f.id });
+        if (values.length) await tx.query(`INSERT INTO folder_access (folder_id, user_id) VALUES ${values.join(',')}`, params);
+      });
       res.json({ userIds: ids });
     } catch (e) { next(e); }
   });

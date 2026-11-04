@@ -14,8 +14,9 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
 
   async function finish(id, res) {
     await db.query(`UPDATE dbsync_runs SET finished_at=@t, status=@s, summary=@sum, log=@log WHERE id=@id`,
-      { id, t: now(), s: res.ok ? 'ok' : 'error', sum: String(res.summary || '').slice(0, 500), log: res.lines.join('\n') });
-    await db.query(`DELETE FROM dbsync_runs WHERE id <= (SELECT MAX(id) FROM dbsync_runs) - @keep`, { keep: KEEP_RUNS });
+      { id, t: now(), s: res.ok ? (res.warnings ? 'warning' : 'ok') : 'error', sum: String(res.summary || '').slice(0, 500), log: res.lines.join('\n') });
+    const top = await db.one('SELECT MAX(id) AS m FROM dbsync_runs');
+    if (top && top.m) await db.query('DELETE FROM dbsync_runs WHERE id <= @cut', { cut: top.m - KEEP_RUNS });
   }
 
   async function execute(id, kind, cfg) {
@@ -49,9 +50,10 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
         const problem = !cfg.source.host && kind === 'sync' ? 'Fill in the backup server' : !cfg.mysql.username && kind === 'sync' ? 'Fill in the MySQL login'
           : !cfg.dest.host && process.platform === 'win32' ? 'Fill in the Ubuntu server' : '';
         const started = now();
-        const run = await db.one(
-          `INSERT INTO dbsync_runs (kind, trigger_by, started_at, status, summary) OUTPUT INSERTED.id VALUES (@kind, @by, @t, 'running', NULL)`,
+        const ins = await db.query(
+          `INSERT INTO dbsync_runs (kind, trigger_by, started_at, status, summary) VALUES (@kind, @by, @t, 'running', NULL)`,
           { kind, by, t: started });
+        const run = { id: ins.insertId };
         const done = (async () => {
           try {
             const res = problem ? { ok: false, summary: problem + ' on the DB Sync screen first.', lines: [problem] } : await execute(run.id, kind, cfg);
@@ -80,9 +82,9 @@ function createDbSyncScheduler({ db, runner, now = () => new Date(), log = conso
     const col = kind === 'sync' ? 'next_sync_at' : 'next_cleanup_at';
     const sched = JSON.parse(kind === 'sync' ? cfgRow.sync_schedule : cfgRow.cleanup_schedule);
     if (!cfgRow[col] || new Date(cfgRow[col]) > t) return false;
-    const got = await db.one(`UPDATE dbsync_config SET ${col} = @next OUTPUT INSERTED.id WHERE id = 1 AND enabled = 1 AND ${col} = @old`,
+    const got = await db.query(`UPDATE dbsync_config SET ${col} = @next WHERE id = 1 AND enabled = 1 AND ${col} = @old`,
       { next: nextRun(sched, t), old: cfgRow[col] });
-    return !!got;
+    return !!got.affectedRows;
   }
 
   async function tick() {

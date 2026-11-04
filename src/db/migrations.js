@@ -1,176 +1,173 @@
 'use strict';
 
-// Each migration is one T-SQL batch (SQL Server 2016 compatible). Append only, never edit a shipped one.
+// MariaDB 10.5+ (utf8mb4). Each migration is a list of statements, run one by one (MariaDB cannot roll back DDL, so
+// they use IF NOT EXISTS and a half-finished migration is simply run again). Append only, never edit a shipped one.
+// Timestamps are DATETIME(3) holding UTC.
+const NOW = '(UTC_TIMESTAMP(3))';
 const MIGRATIONS = [
-  `
-  CREATE TABLE users (
-    id            INT IDENTITY(1,1) PRIMARY KEY,
-    username      NVARCHAR(100) NOT NULL UNIQUE,
-    password_hash NVARCHAR(100) NOT NULL,
-    role          NVARCHAR(10)  NOT NULL CHECK (role IN ('admin','viewer')),
-    disabled      BIT NOT NULL DEFAULT 0,
-    created_at    DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-  );
-  CREATE TABLE folders (
-    id         INT IDENTITY(1,1) PRIMARY KEY,
-    name       NVARCHAR(100) NOT NULL UNIQUE,
-    is_system  BIT NOT NULL DEFAULT 0,
-    created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-  );
-  CREATE TABLE connections (
-    id                 INT IDENTITY(1,1) PRIMARY KEY,
-    name               NVARCHAR(100) NOT NULL UNIQUE,
-    type               NVARCHAR(10)  NOT NULL CHECK (type IN ('mssql','mysql')),
-    host               NVARCHAR(255) NOT NULL,
-    port               INT NOT NULL,
-    database_name      NVARCHAR(128) NOT NULL,
-    username           NVARCHAR(128) NOT NULL,
-    password_enc       NVARCHAR(MAX) NOT NULL,
-    trust_server_cert  BIT NOT NULL DEFAULT 0,
-    created_at         DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    updated_at         DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-  );
-  -- Minimal shape so FR-7 (block deleting a connection that reports use) works now. Phase 2 extends it.
-  CREATE TABLE reports (
-    id              INT IDENTITY(1,1) PRIMARY KEY,
-    folder_id       INT NOT NULL REFERENCES folders(id),
-    name            NVARCHAR(200) NOT NULL,
-    file_path       NVARCHAR(500) NOT NULL,
-    datasource_name NVARCHAR(200) NULL,
-    connection_id   INT NULL REFERENCES connections(id),
-    created_at      DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-  );
-  CREATE TABLE sessions (
-    sid        NVARCHAR(128) NOT NULL PRIMARY KEY,
-    user_id    INT NULL,
-    sess       NVARCHAR(MAX) NOT NULL,
-    expires_at DATETIME2 NOT NULL
-  );
-  CREATE INDEX ix_sessions_expires ON sessions(expires_at);
-  CREATE INDEX ix_sessions_user ON sessions(user_id);
-  CREATE TABLE settings (
-    name  NVARCHAR(100) NOT NULL PRIMARY KEY,
-    value NVARCHAR(500) NOT NULL
-  );
-  `,
-  // Phase 2: report metadata
-  `
-  ALTER TABLE reports ADD
-    title         NVARCHAR(300) NULL,
-    warnings      NVARCHAR(MAX) NULL,
-    uploaded_by   INT NULL,
-    updated_at    DATETIME2 NOT NULL CONSTRAINT df_reports_updated DEFAULT SYSUTCDATETIME();
-  CREATE UNIQUE INDEX ux_reports_folder_name ON reports(folder_id, name);
-  `,
-  // Phase 3: audit log
-  `
-  CREATE TABLE audit_log (
-    id          BIGINT IDENTITY(1,1) PRIMARY KEY,
-    logged_at   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    user_id     INT NULL,
-    username    NVARCHAR(100) NULL,
-    action      NVARCHAR(30) NOT NULL,
-    report_id   INT NULL,
-    report_name NVARCHAR(200) NULL,
-    params      NVARCHAR(4000) NULL,
-    row_count   INT NULL,
-    status      NVARCHAR(10) NOT NULL DEFAULT 'ok',
-    error       NVARCHAR(500) NULL,
-    ip          NVARCHAR(64) NULL,
-    user_agent  NVARCHAR(300) NULL
-  );
-  CREATE INDEX ix_audit_at ON audit_log(logged_at DESC);
-  CREATE INDEX ix_audit_user ON audit_log(username);
-  `,
-  // Phase 4: own accounts (forced password change) and scheduled report subscriptions
-  `
-  ALTER TABLE users ADD must_change_password BIT NOT NULL CONSTRAINT df_users_mcp DEFAULT 0;
-  CREATE TABLE subscriptions (
-    id          INT IDENTITY(1,1) PRIMARY KEY,
-    user_id     INT NOT NULL REFERENCES users(id),
-    report_id   INT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
-    name        NVARCHAR(200) NOT NULL,
-    params      NVARCHAR(4000) NOT NULL CONSTRAINT df_subs_params DEFAULT '{}',
-    format      NVARCHAR(4) NOT NULL CHECK (format IN ('csv','xlsx')),
-    schedule    NVARCHAR(500) NOT NULL,
-    folder      NVARCHAR(200) NOT NULL CONSTRAINT df_subs_folder DEFAULT '',
-    enabled     BIT NOT NULL CONSTRAINT df_subs_enabled DEFAULT 1,
-    next_run_at DATETIME2 NULL,
-    last_run_at DATETIME2 NULL,
-    last_status NVARCHAR(10) NULL,
-    last_error  NVARCHAR(500) NULL,
-    failures    INT NOT NULL CONSTRAINT df_subs_failures DEFAULT 0,
-    created_at  DATETIME2 NOT NULL CONSTRAINT df_subs_created DEFAULT SYSUTCDATETIME()
-  );
-  CREATE INDEX ix_subs_due ON subscriptions(enabled, next_run_at);
-  CREATE INDEX ix_subs_user ON subscriptions(user_id);
-  CREATE TABLE subscription_runs (
-    id              BIGINT IDENTITY(1,1) PRIMARY KEY,
-    subscription_id INT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
-    user_id         INT NOT NULL,
-    started_at      DATETIME2 NOT NULL,
-    finished_at     DATETIME2 NULL,
-    status          NVARCHAR(10) NOT NULL,
-    row_count       INT NULL,
-    file_name       NVARCHAR(400) NULL,
-    file_size       BIGINT NULL,
-    error           NVARCHAR(500) NULL
-  );
-  CREATE INDEX ix_subruns_sub ON subscription_runs(subscription_id, id DESC);
-  CREATE INDEX ix_subruns_user ON subscription_runs(user_id, id DESC);
-  `,
-  // One user may be signed in on several PCs at once; admins can still switch single-session back on.
-  `UPDATE settings SET value = 'false' WHERE name = 'single_session';`,
-  // Folder access: no rows for a folder = every viewer can open it; rows = only those viewers (admins always can).
-  `
-  CREATE TABLE folder_access (
-    folder_id INT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
-    user_id   INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT pk_folder_access PRIMARY KEY (folder_id, user_id)
-  );
-  CREATE INDEX ix_folder_access_user ON folder_access(user_id);
-  `,
-  // Nightly copy of the newest MySQL dumps from a backup server, restore, and clean-up (src/dbsync). One settings row.
-  `
-  CREATE TABLE dbsync_config (
-    id               INT NOT NULL PRIMARY KEY CHECK (id = 1),
-    enabled          BIT NOT NULL CONSTRAINT df_dbsync_enabled DEFAULT 0,
-    src_host         NVARCHAR(255) NOT NULL CONSTRAINT df_dbsync_src_host DEFAULT '',
-    src_port         INT NOT NULL CONSTRAINT df_dbsync_src_port DEFAULT 22,
-    src_user         NVARCHAR(100) NOT NULL CONSTRAINT df_dbsync_src_user DEFAULT '',
-    src_password_enc NVARCHAR(2000) NULL,
-    src_dir          NVARCHAR(300) NOT NULL CONSTRAINT df_dbsync_src_dir DEFAULT '/home/backup_db',
-    src_hostkey      NVARCHAR(100) NULL,
-    dst_host         NVARCHAR(255) NOT NULL CONSTRAINT df_dbsync_dst_host DEFAULT '',
-    dst_port         INT NOT NULL CONSTRAINT df_dbsync_dst_port DEFAULT 22,
-    dst_user         NVARCHAR(100) NOT NULL CONSTRAINT df_dbsync_dst_user DEFAULT '',
-    dst_password_enc NVARCHAR(2000) NULL,
-    dst_dir          NVARCHAR(300) NOT NULL CONSTRAINT df_dbsync_dst_dir DEFAULT '/home/mysqlbackup',
-    dst_hostkey      NVARCHAR(100) NULL,
-    my_host          NVARCHAR(255) NOT NULL CONSTRAINT df_dbsync_my_host DEFAULT 'localhost',
-    my_port          INT NOT NULL CONSTRAINT df_dbsync_my_port DEFAULT 3306,
-    my_user          NVARCHAR(100) NOT NULL CONSTRAINT df_dbsync_my_user DEFAULT '',
-    my_password_enc  NVARCHAR(2000) NULL,
-    items            NVARCHAR(2000) NOT NULL CONSTRAINT df_dbsync_items DEFAULT '[{"prefix":"dev_arjuna","database":"dev_arjuna"},{"prefix":"dev_kenji","database":"dev_kenji"}]',
-    sync_schedule    NVARCHAR(500) NOT NULL CONSTRAINT df_dbsync_sync DEFAULT '{"type":"daily","time":"02:00"}',
-    cleanup_schedule NVARCHAR(500) NOT NULL CONSTRAINT df_dbsync_clean DEFAULT '{"type":"daily","time":"18:00"}',
-    next_sync_at     DATETIME2 NULL,
-    next_cleanup_at  DATETIME2 NULL,
-    updated_at       DATETIME2 NOT NULL CONSTRAINT df_dbsync_updated DEFAULT SYSUTCDATETIME()
-  );
-  INSERT INTO dbsync_config (id) VALUES (1);
-  CREATE TABLE dbsync_runs (
-    id          BIGINT IDENTITY(1,1) PRIMARY KEY,
-    kind        NVARCHAR(10) NOT NULL CHECK (kind IN ('sync','cleanup')),
-    trigger_by  NVARCHAR(10) NOT NULL,
-    started_at  DATETIME2 NOT NULL,
-    finished_at DATETIME2 NULL,
-    status      NVARCHAR(10) NOT NULL,
-    summary     NVARCHAR(500) NULL,
-    log         NVARCHAR(MAX) NULL
-  );
-  CREATE INDEX ix_dbsync_runs ON dbsync_runs(id DESC);
-  `,
+  [
+    `CREATE TABLE IF NOT EXISTS users (
+      id                   INT AUTO_INCREMENT PRIMARY KEY,
+      username             VARCHAR(100) NOT NULL UNIQUE,
+      password_hash        VARCHAR(100) NOT NULL,
+      role                 VARCHAR(10)  NOT NULL,
+      disabled             TINYINT(1) NOT NULL DEFAULT 0,
+      must_change_password TINYINT(1) NOT NULL DEFAULT 0,
+      created_at           DATETIME(3) NOT NULL DEFAULT ${NOW},
+      CONSTRAINT ck_users_role CHECK (role IN ('admin','viewer'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS folders (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      name       VARCHAR(100) NOT NULL UNIQUE,
+      is_system  TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME(3) NOT NULL DEFAULT ${NOW}
+    )`,
+    `CREATE TABLE IF NOT EXISTS connections (
+      id                 INT AUTO_INCREMENT PRIMARY KEY,
+      name               VARCHAR(100) NOT NULL UNIQUE,
+      type               VARCHAR(10)  NOT NULL,
+      host               VARCHAR(255) NOT NULL,
+      port               INT NOT NULL,
+      database_name      VARCHAR(128) NOT NULL,
+      username           VARCHAR(128) NOT NULL,
+      password_enc       LONGTEXT NOT NULL,
+      trust_server_cert  TINYINT(1) NOT NULL DEFAULT 0,
+      created_at         DATETIME(3) NOT NULL DEFAULT ${NOW},
+      updated_at         DATETIME(3) NOT NULL DEFAULT ${NOW},
+      CONSTRAINT ck_connections_type CHECK (type IN ('mssql','mysql'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS reports (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      folder_id       INT NOT NULL,
+      name            VARCHAR(200) NOT NULL,
+      file_path       VARCHAR(500) NOT NULL,
+      datasource_name VARCHAR(200) NULL,
+      connection_id   INT NULL,
+      title           VARCHAR(300) NULL,
+      warnings        LONGTEXT NULL,
+      uploaded_by     INT NULL,
+      created_at      DATETIME(3) NOT NULL DEFAULT ${NOW},
+      updated_at      DATETIME(3) NOT NULL DEFAULT ${NOW},
+      UNIQUE KEY ux_reports_folder_name (folder_id, name),
+      CONSTRAINT fk_reports_folder FOREIGN KEY (folder_id) REFERENCES folders(id),
+      CONSTRAINT fk_reports_connection FOREIGN KEY (connection_id) REFERENCES connections(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS sessions (
+      sid        VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+      user_id    INT NULL,
+      sess       LONGTEXT NOT NULL,
+      expires_at DATETIME(3) NOT NULL,
+      KEY ix_sessions_expires (expires_at),
+      KEY ix_sessions_user (user_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS settings (
+      name  VARCHAR(100) NOT NULL PRIMARY KEY,
+      value VARCHAR(500) NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS audit_log (
+      id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+      logged_at   DATETIME(3) NOT NULL DEFAULT ${NOW},
+      user_id     INT NULL,
+      username    VARCHAR(100) NULL,
+      action      VARCHAR(30) NOT NULL,
+      report_id   INT NULL,
+      report_name VARCHAR(200) NULL,
+      params      VARCHAR(4000) NULL,
+      row_count   INT NULL,
+      status      VARCHAR(10) NOT NULL DEFAULT 'ok',
+      error       VARCHAR(500) NULL,
+      ip          VARCHAR(64) NULL,
+      user_agent  VARCHAR(300) NULL,
+      KEY ix_audit_at (logged_at),
+      KEY ix_audit_user (username)
+    )`,
+    `CREATE TABLE IF NOT EXISTS subscriptions (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT NOT NULL,
+      report_id   INT NOT NULL,
+      name        VARCHAR(200) NOT NULL,
+      params      VARCHAR(4000) NOT NULL DEFAULT '{}',
+      format      VARCHAR(4) NOT NULL,
+      schedule    VARCHAR(500) NOT NULL,
+      folder      VARCHAR(200) NOT NULL DEFAULT '',
+      enabled     TINYINT(1) NOT NULL DEFAULT 1,
+      next_run_at DATETIME(3) NULL,
+      last_run_at DATETIME(3) NULL,
+      last_status VARCHAR(10) NULL,
+      last_error  VARCHAR(500) NULL,
+      failures    INT NOT NULL DEFAULT 0,
+      created_at  DATETIME(3) NOT NULL DEFAULT ${NOW},
+      KEY ix_subs_due (enabled, next_run_at),
+      KEY ix_subs_user (user_id),
+      CONSTRAINT fk_subs_user FOREIGN KEY (user_id) REFERENCES users(id),
+      CONSTRAINT fk_subs_report FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+      CONSTRAINT ck_subs_format CHECK (format IN ('csv','xlsx'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS subscription_runs (
+      id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+      subscription_id INT NOT NULL,
+      user_id         INT NOT NULL,
+      started_at      DATETIME(3) NOT NULL,
+      finished_at     DATETIME(3) NULL,
+      status          VARCHAR(10) NOT NULL,
+      row_count       INT NULL,
+      file_name       VARCHAR(400) NULL,
+      file_size       BIGINT NULL,
+      error           VARCHAR(500) NULL,
+      KEY ix_subruns_sub (subscription_id, id),
+      KEY ix_subruns_user (user_id, id),
+      CONSTRAINT fk_subruns_sub FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+    )`,
+    // Folder access: no rows for a folder = every viewer can open it; rows = only those viewers (admins always can).
+    `CREATE TABLE IF NOT EXISTS folder_access (
+      folder_id INT NOT NULL,
+      user_id   INT NOT NULL,
+      PRIMARY KEY (folder_id, user_id),
+      KEY ix_folder_access_user (user_id),
+      CONSTRAINT fk_fa_folder FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
+      CONSTRAINT fk_fa_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`,
+    // Nightly copy of the newest MySQL/MariaDB dumps from a backup server, restore, and clean-up (src/dbsync). One settings row.
+    `CREATE TABLE IF NOT EXISTS dbsync_config (
+      id               INT NOT NULL PRIMARY KEY,
+      enabled          TINYINT(1) NOT NULL DEFAULT 0,
+      src_host         VARCHAR(255) NOT NULL DEFAULT '',
+      src_port         INT NOT NULL DEFAULT 22,
+      src_user         VARCHAR(100) NOT NULL DEFAULT '',
+      src_password_enc VARCHAR(2000) NULL,
+      src_dir          VARCHAR(300) NOT NULL DEFAULT '/home/backup_db',
+      src_hostkey      VARCHAR(100) NULL,
+      dst_host         VARCHAR(255) NOT NULL DEFAULT '',
+      dst_port         INT NOT NULL DEFAULT 22,
+      dst_user         VARCHAR(100) NOT NULL DEFAULT '',
+      dst_password_enc VARCHAR(2000) NULL,
+      dst_dir          VARCHAR(300) NOT NULL DEFAULT '/home/mysqlbackup',
+      dst_hostkey      VARCHAR(100) NULL,
+      my_host          VARCHAR(255) NOT NULL DEFAULT 'localhost',
+      my_port          INT NOT NULL DEFAULT 3306,
+      my_user          VARCHAR(100) NOT NULL DEFAULT '',
+      my_password_enc  VARCHAR(2000) NULL,
+      items            VARCHAR(2000) NOT NULL DEFAULT '[{"prefix":"dev_arjuna","database":"dev_arjuna"},{"prefix":"dev_kenji","database":"dev_kenji"}]',
+      sync_schedule    VARCHAR(500) NOT NULL DEFAULT '{"type":"daily","time":"02:00"}',
+      cleanup_schedule VARCHAR(500) NOT NULL DEFAULT '{"type":"daily","time":"18:00"}',
+      next_sync_at     DATETIME(3) NULL,
+      next_cleanup_at  DATETIME(3) NULL,
+      updated_at       DATETIME(3) NOT NULL DEFAULT ${NOW},
+      CONSTRAINT ck_dbsync_single CHECK (id = 1)
+    )`,
+    `INSERT IGNORE INTO dbsync_config (id) VALUES (1)`,
+    `CREATE TABLE IF NOT EXISTS dbsync_runs (
+      id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+      kind        VARCHAR(10) NOT NULL,
+      trigger_by  VARCHAR(10) NOT NULL,
+      started_at  DATETIME(3) NOT NULL,
+      finished_at DATETIME(3) NULL,
+      status      VARCHAR(10) NOT NULL,
+      summary     VARCHAR(500) NULL,
+      log         LONGTEXT NULL,
+      CONSTRAINT ck_dbsync_kind CHECK (kind IN ('sync','cleanup'))
+    )`,
+  ],
 ];
 
 const DEFAULT_FOLDERS = [
@@ -183,12 +180,11 @@ const DEFAULT_FOLDERS = [
 ];
 
 async function migrate(db) {
-  await db.query(`IF OBJECT_ID('schema_version','U') IS NULL
-    CREATE TABLE schema_version (version INT NOT NULL)`);
+  await db.query('CREATE TABLE IF NOT EXISTS schema_version (version INT NOT NULL)');
   const row = await db.one('SELECT MAX(version) AS v FROM schema_version');
-  let current = (row && row.v) || 0;
+  const current = (row && row.v) || 0;
   for (let i = current; i < MIGRATIONS.length; i++) {
-    await db.query(`SET XACT_ABORT ON; BEGIN TRANSACTION;\n${MIGRATIONS[i]}\nCOMMIT TRANSACTION;`);
+    for (const statement of MIGRATIONS[i]) await db.query(statement);
     await db.query('INSERT INTO schema_version (version) VALUES (@v)', { v: i + 1 });
   }
   // FR-8a: default folders on first start

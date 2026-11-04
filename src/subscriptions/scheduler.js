@@ -49,8 +49,8 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepF
     const failed = fields.status !== 'ok';
     await db.query(
       `UPDATE subscriptions SET last_run_at = @started, last_status = @status, last_error = @error,
-         failures = CASE WHEN @failed = 1 THEN failures + 1 ELSE 0 END,
-         enabled = CASE WHEN @failed = 1 AND failures + 1 >= @max THEN 0 ELSE enabled END
+         enabled = CASE WHEN @failed = 1 AND failures + 1 >= @max THEN 0 ELSE enabled END,
+         failures = CASE WHEN @failed = 1 THEN failures + 1 ELSE 0 END
        WHERE id = @id`,
       { id: sub.id, started, status: fields.status, error: failed ? String(fields.error || 'Failed').slice(0, 500) : null, failed, max: MAX_FAILURES }
     );
@@ -101,18 +101,18 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepF
     try {
       const t = now();
       const due = await db.query(
-        `SELECT TOP 20 s.*, r.name AS report_name, u.username, u.role, u.disabled AS user_disabled, f.is_system AS folder_is_system,
+        `SELECT s.*, r.name AS report_name, u.username, u.role, u.disabled AS user_disabled, f.is_system AS folder_is_system,
                 ${FOLDER_BLOCKED_FOR_OWNER_SQL} AS folder_blocked
          FROM subscriptions s
          JOIN users u ON u.id = s.user_id JOIN reports r ON r.id = s.report_id JOIN folders f ON f.id = r.folder_id
-         WHERE s.enabled = 1 AND s.next_run_at <= @now ORDER BY s.next_run_at`, { now: t });
+         WHERE s.enabled = 1 AND s.next_run_at <= @now ORDER BY s.next_run_at LIMIT 20`, { now: t });
       const claimed = [];
       for (const s of due) {
         let next;
         try { next = nextRun(JSON.parse(s.schedule), t); } catch (e) { log.error(`Subscription ${s.id} has a bad schedule`); continue; }
-        const got = await db.one('UPDATE subscriptions SET next_run_at = @next OUTPUT INSERTED.id WHERE id = @id AND enabled = 1 AND next_run_at = @old',
+        const got = await db.query('UPDATE subscriptions SET next_run_at = @next WHERE id = @id AND enabled = 1 AND next_run_at = @old',
           { id: s.id, next, old: s.next_run_at });
-        if (got) claimed.push(s);
+        if (got.affectedRows) claimed.push(s);
       }
       await Promise.all(claimed.map((s) => execute(s).catch((e) => log.error('Subscription run crashed:', e.message))));
       if (t.getTime() - lastCleanup > 3600 * 1000) { lastCleanup = t.getTime(); await cleanup(t).catch((e) => log.error('Output cleanup failed:', e.message)); }

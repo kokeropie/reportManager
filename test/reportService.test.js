@@ -19,10 +19,12 @@ function setup({ connections = [{ id: 5, name: 'PTES_SVRINS02' }], existing = fa
       if (/FROM reports WHERE folder_id/.test(sql)) return existing ? { id: 1 } : null;
       if (/FROM connections WHERE LOWER/.test(sql)) return connections.find((c) => c.name.toLowerCase() === String(p.name).toLowerCase()) || null;
       if (/FROM connections WHERE id/.test(sql)) return connections.find((c) => c.id === p.id) || null;
-      if (/INSERT INTO reports/.test(sql)) { inserted.push(p); return { id: 11 }; }
       return null;
     },
-    query: async () => [],
+    query: async (sql, p) => {
+      if (/INSERT INTO reports/.test(sql)) { inserted.push(p); return Object.assign([], { insertId: 11 }); }
+      return [];
+    },
   };
   return { svc: createReportService({ db, reportsDir: dir }), dir, inserted };
 }

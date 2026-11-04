@@ -57,7 +57,7 @@ function createDbSyncService({ db, encryptionKey, now = () => new Date(), open =
            src_host=@sh, src_port=@sp, src_user=@su, src_password_enc=COALESCE(@spw, src_password_enc), src_dir=@sd, src_hostkey=@skey,
            dst_host=@dh, dst_port=@dp, dst_user=@du, dst_password_enc=COALESCE(@dpw, dst_password_enc), dst_dir=@dd, dst_hostkey=@dkey,
            my_host=@mh, my_port=@mp, my_user=@mu, my_password_enc=COALESCE(@mpw, my_password_enc),
-           items=@items, sync_schedule=@ss, cleanup_schedule=@cs, next_sync_at=@ns, next_cleanup_at=@nc, updated_at=SYSUTCDATETIME()
+           items=@items, sync_schedule=@ss, cleanup_schedule=@cs, next_sync_at=@ns, next_cleanup_at=@nc, updated_at=UTC_TIMESTAMP(3)
          WHERE id = 1`,
         {
           enabled: v.enabled,
@@ -116,7 +116,7 @@ function createDbSyncService({ db, encryptionKey, now = () => new Date(), open =
     },
 
     async runs(limit = 30) {
-      const rows = await db.query(`SELECT TOP ${Math.min(200, Math.max(1, limit | 0))} * FROM dbsync_runs ORDER BY id DESC`);
+      const rows = await db.query(`SELECT * FROM dbsync_runs ORDER BY id DESC LIMIT ${Math.min(200, Math.max(1, limit | 0))}`);
       return rows.map((r) => ({ id: r.id, kind: r.kind, by: r.trigger_by, startedAt: r.started_at, finishedAt: r.finished_at, status: r.status, summary: r.summary, log: r.log }));
     },
   };

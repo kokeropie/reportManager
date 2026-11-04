@@ -31,10 +31,10 @@
   <h2>1. Before you start</h2>
   <ul>
     <li>Release zip copied to the server (report-server-0.2.0)</li>
-    <li>SQL Server host, port and a login that can create a database</li>
+    <li>MariaDB host, port (3306) and a login that can create a database</li>
     <li><code>node -v</code> shows Node 16 (64-bit) for the <code>-node16</code> zip, or Node 20+ for the normal zip</li>
     <li>Windows time zone is Jakarta (schedules use it)</li>
-    <li>SQL Server allows TCP/IP and SQL logins</li>
+    <li>MariaDB 10.5+ accepts this login from the app server</li>
     <li>Unzipped to <code>C:\apps\report-server</code></li>
   </ul>
 </section>
@@ -45,7 +45,7 @@
     <li><code>powershell -ExecutionPolicy Bypass -File .\deploy\setup-windows.ps1</code></li>
     <li>Answered the questions; output folder blank = <code>output\</code></li>
     <li class="warn">ENCRYPTION_KEY from .env backed up somewhere safe</li>
-    <li>Database exists (script or <code>create-database.sql</code>)</li>
+    <li>Database exists (setup script or <code>create-database.sql</code>)</li>
     <li>Health check passed; ADMIN_PASSWORD gone from .env</li>
     <li>If it failed: read <code>logs\error.log</code></li>
   </ul>

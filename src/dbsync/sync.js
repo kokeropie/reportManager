@@ -43,6 +43,9 @@ function makeLog(onLine) {
   return { lines, info: (m) => add('', m), warn: (m) => add('WARN', m), error: (m) => add('ERROR', m) };
 }
 
+// Errors that mean nothing was imported at all (login, connection, missing database); these still fail the file.
+const FATAL_RESTORE = /ERROR (1044|1045|1049|2002|2003|2005|2013)\b|Access denied|Can't connect|Unknown database/i;
+
 async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, run }) {
   const files = await source.list(cfg.source.dir);
   const latest = pickLatest(files, item.prefix);
@@ -79,12 +82,19 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
   log.info(`${item.prefix}: extracted to ${sql}`);
 
   await T('restore', async () => {
-    r = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} --default-character-set=utf8mb4 --database=${q(item.database)} < ${q(sql)}`);
+    r = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} --default-character-set=utf8mb4 --force --database=${q(item.database)} < ${q(sql)}`);
     if (r.code === 127) throw new Error(`The mysql client is not installed on ${dest.label}. On Ubuntu: sudo apt install mysql-client`);
-    if (r.code !== 0) throw new Error(`Restore into ${item.database} failed: ${r.text || 'exit ' + r.code}`);
+    // --force keeps importing after an SQL error; the exit code is then non-zero, which is not a failure here.
+    if (r.code !== 0 && FATAL_RESTORE.test(r.text || '')) throw new Error(`Restore into ${item.database} failed: ${r.text || 'exit ' + r.code}`);
   }, `database ${item.database}`);
-  log.info(`${item.prefix}: restored into database ${item.database}`);
-  tlog.write(`run=${run} | ${latest.name} | TOTAL | OK | ${Math.round((Date.now() - t0) / 100) / 10}s`);
+  const withErrors = r.code !== 0;
+  if (withErrors) {
+    const msgs = String(r.text || '').split('\n').map((s) => s.trim()).filter(Boolean);
+    log.warn(`${item.prefix}: import finished with ${msgs.length || 'some'} error message(s), ignored. First: ${(msgs[0] || 'exit ' + r.code).slice(0, 300)}`);
+  }
+  log.info(`${item.prefix}: restored into database ${item.database}${withErrors ? ' (with errors)' : ''}`);
+  tlog.write(`run=${run} | ${latest.name} | TOTAL | ${withErrors ? 'OK (errors ignored)' : 'OK'} | ${Math.round((Date.now() - t0) / 100) / 10}s`);
+  return withErrors;
 }
 
 // Returns { ok, summary, lines }. Each database is handled on its own, so one bad file does not block the other.
@@ -92,6 +102,7 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, timi
   const log = makeLog(onLine);
   timingLog.write(`run=${runId} | sync started | ${cfg.items.length} database(s)`);
   const failed = [];
+  const withErrors = [];
   let done = 0;
   const cnfPath = px.join(cfg.dest.dir, `.dbsync-${process.pid}-${Date.now()}.cnf`);
   try {
@@ -99,7 +110,7 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, timi
     await dest.writeSecret(cnfPath, optionFile(cfg.mysql));
     for (const item of cfg.items) {
       try {
-        await restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog: timingLog, run: runId });
+        if (await restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog: timingLog, run: runId })) withErrors.push(item.prefix);
         done++;
       } catch (e) {
         failed.push(item.prefix);
@@ -114,7 +125,11 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, timi
   }
   const ok = failed.length === 0;
   timingLog.write(`run=${runId} | sync finished | ${done} restored, ${failed.length} failed`);
-  return { ok, summary: ok ? `Restored ${done} database(s)` : `Failed: ${failed.join(', ')} (${done} restored)`, lines: log.lines };
+  const note = withErrors.length ? ` Completed with errors in: ${withErrors.join(', ')} (errors ignored, see the log).` : '';
+  return {
+    ok, warnings: withErrors.length > 0, lines: log.lines,
+    summary: ok ? `Restored ${done} database(s).${note}`.trim() : `Failed: ${failed.join(', ')} (${done} restored).${note}`.trim(),
+  };
 }
 
 // Deletes this module's own files from the target folder; anything else in the folder is left alone.

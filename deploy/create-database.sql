@@ -1,22 +1,11 @@
--- Creates the app database and a login for it. Run once, as a SQL Server admin, for example:
+-- Creates the app database and a login for it on MariaDB. Run once as a MariaDB admin on the Ubuntu server:
 --
---   sqlcmd -S localhost -E -i deploy\create-database.sql ^
---          -v DbName="ReportServer" LoginName="report_app" LoginPassword="<strong password, no single quote>"
+--   sudo mysql < deploy/create-database.sql
 --
--- Or open it in SSMS, turn on SQLCMD Mode (Query menu), and set the three values below.
--- SQL Server must allow TCP/IP and SQL authentication (mixed mode). Safe to run again.
-:setvar DbName "ReportServer"
-:setvar LoginName "report_app"
-:setvar LoginPassword "CHANGE-ME-to-a-strong-password"
-
-IF DB_ID(N'$(DbName)') IS NULL CREATE DATABASE [$(DbName)];
-GO
-IF SUSER_ID(N'$(LoginName)') IS NULL
-  CREATE LOGIN [$(LoginName)] WITH PASSWORD = N'$(LoginPassword)', CHECK_POLICY = ON;
-GO
-USE [$(DbName)];
-GO
-IF USER_ID(N'$(LoginName)') IS NULL CREATE USER [$(LoginName)] FOR LOGIN [$(LoginName)];
-ALTER ROLE db_owner ADD MEMBER [$(LoginName)];
-GO
-PRINT 'Done. Put the login in .env as APP_DB_USER / APP_DB_PASSWORD.';
+-- Edit the three values below first (password: strong, no single quote). Safe to run again.
+-- To let the app connect from another machine, change 'localhost' in the two GRANT/USER lines to that machine's address (or '%').
+CREATE DATABASE IF NOT EXISTS reportserver CHARACTER SET utf8mb4;
+CREATE USER IF NOT EXISTS 'report_app'@'localhost' IDENTIFIED BY 'CHANGE-ME-to-a-strong-password';
+GRANT ALL PRIVILEGES ON reportserver.* TO 'report_app'@'localhost';
+FLUSH PRIVILEGES;
+-- Then put the login in .env as APP_DB_USER=report_app / APP_DB_PASSWORD, APP_DB_NAME=reportserver.

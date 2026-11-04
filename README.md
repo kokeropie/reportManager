@@ -1,6 +1,6 @@
 # Report Server
 
-Lightweight SSRS-style web app: upload `.rdl` reports, run them against MSSQL or MySQL, export CSV/XLSX. See `raw/PRD-Report-Server.md`.
+Lightweight SSRS-style web app: upload `.rdl` reports, run them against MSSQL or MySQL/MariaDB, export CSV/XLSX. See `raw/PRD-Report-Server.md`.
 
 **Status:** All three phases are built. Phase 1: app database, login and roles, user admin, connections manager with encrypted passwords and a Test button. Phase 2: folders, RDL upload and parsing, report-to-connection mapping, parameter form, query runner for MSSQL and MySQL, paged HTML viewer. Phase 3: CSV and XLSX export, audit log, health check, Windows service scripts.
 
@@ -9,23 +9,21 @@ It has been tested against all 19 files in `sampleReport/` for parsing, expressi
 ## Requirements
 
 - Node.js 20 or newer for the normal build (Ubuntu, Windows 10/11, Server 2016+). Windows Server 2012 R2 tops out at Node 16, so there is a separate `-node16.zip` release with older, pinned dependencies from `deploy/legacy/`. Node 16 is end-of-life and that build keeps known `npm audit` findings; use it only where the OS cannot run Node 20.
-- SQL Server 2016 or newer for the app's own data. No native Node modules are used, so `npm install` needs no compiler.
+- MariaDB 10.5 or newer for the app's own data (the same engine as `dev_arjuna` / `dev_kenji`). No native Node modules are used, so `npm install` needs no compiler.
 
 ## Setup
 
-**Easiest: the setup page.** Run `npm start` with no database settings in `.env` (or run `node server.js --setup` at any time to reconfigure). The server prints `SETUP MODE`, a URL and a one-time **setup code**. Open the URL, enter the code, the SQL Server (`host` or `host\instance`), the login and password, press **Test connection**, then **Save and start**. It creates the database if the login may, writes `.env` with generated secrets, creates the first admin and starts the app, all without a restart. The code is needed because anyone who can reach the port could otherwise reconfigure the server; on the Windows service it is in `logs\out.log`. It never changes an existing `ENCRYPTION_KEY`.
+**Easiest: the setup page.** Run `npm start` with no database settings in `.env` (or run `node server.js --setup` at any time to reconfigure). The server prints `SETUP MODE`, a URL and a one-time **setup code**. Open the URL, enter the code, the MariaDB server (host and port), the login and password, press **Test connection**, then **Save and start**. It creates the database if the login may, writes `.env` with generated secrets, creates the first admin and starts the app, all without a restart. The code is needed because anyone who can reach the port could otherwise reconfigure the server; on the Windows service it is in `logs\out.log`. It never changes an existing `ENCRYPTION_KEY`.
 
 **Or by hand:**
 
-1. In SQL Server, create an empty database and a login that can create tables in it:
+1. In MariaDB, create an empty database and a login that can create tables in it (or edit and run `deploy/create-database.sql`):
    ```sql
-   CREATE DATABASE ReportServer;
-   CREATE LOGIN report_app WITH PASSWORD = '<strong password>';
-   USE ReportServer;
-   CREATE USER report_app FOR LOGIN report_app;
-   ALTER ROLE db_owner ADD MEMBER report_app;
+   CREATE DATABASE reportserver CHARACTER SET utf8mb4;
+   CREATE USER 'report_app'@'localhost' IDENTIFIED BY '<strong password>';
+   GRANT ALL PRIVILEGES ON reportserver.* TO 'report_app'@'localhost';
    ```
-   SQL Server must allow TCP/IP connections and SQL authentication (mixed mode).
+   The login must be allowed from the machine the app runs on (`'user'@'host'`).
 2. `npm install`
 3. Copy `.env.example` to `.env` and fill it in. Generate the secrets with the commands in the file. **Back up `ENCRYPTION_KEY`**: without it, stored connection passwords cannot be decrypted.
 4. `npm start`. On first start the tables and default folders (Accounting, Finance, Connection, MPM, ORN, ePRV) are created, and the first admin is created from `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Remove `ADMIN_PASSWORD` from `.env` afterwards.
@@ -66,12 +64,12 @@ The app has no native modules, so a release zip built on any machine runs on the
 
 1. Install Node.js (64-bit `.msi`). On Server 2012 R2 use Node 16 (https://nodejs.org/dist/latest-v16.x/) and the `-node16.zip` release; on Windows 10/11 or Server 2016+ use Node 20+ and the normal `.zip`. Check with `node -v`.
 2. Unzip the release, for example to `C:\apps\report-server`.
-3. Make sure SQL Server (2016 or newer, here or on another machine) allows TCP/IP and SQL logins. The setup script can create the database for you if `sqlcmd` is installed, or run `deploy\create-database.sql` yourself (header of that file explains how).
+3. Make sure MariaDB 10.5 or newer (here or on another machine) accepts the app's login. The setup script can create the database for you, or run `deploy\create-database.sql` yourself on the MariaDB server.
 4. In an **elevated** PowerShell, in the app folder:
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\deploy\setup-windows.ps1
    ```
-   It asks for the SQL Server details and the first admin login, writes `.env` with freshly generated secrets, optionally creates the database, downloads NSSM if it is missing (or uses `C:\tools\nssm\nssm.exe`), installs the `ReportServer` service (starts automatically, restarts 5 seconds after a crash, logs to `logs\`, opens the firewall port), waits for `/healthz`, and removes the admin password from `.env`.
+   It asks for the MariaDB details and the first admin login, writes `.env` with freshly generated secrets, optionally creates the database, downloads NSSM if it is missing (or uses `C:\tools\nssm\nssm.exe`), installs the `ReportServer` service (starts automatically, restarts 5 seconds after a crash, logs to `logs\`, opens the firewall port), waits for `/healthz`, and removes the admin password from `.env`.
 5. Open `http://<server-name>:3000` from another computer.
    - Check the server's **time zone** (scheduled reports use it).
    - Scheduled results go to `output\` inside the app folder unless you set `OUTPUT_DIR`. For a network share, run the service under an account that can write to it: `.\deploy\install-service.ps1 -NssmPath ... -OutputDir \\server\share\reports -ServiceUser DOMAIN\svc-reports -ServicePassword ...` (LocalSystem cannot sign in to shares).
@@ -89,20 +87,20 @@ To do the steps by hand instead: copy `.env.example` to `.env`, fill it in, test
 
 **Removing the service.** `.\deploy\uninstall-service.ps1 -NssmPath C:\tools\nssm\nssm.exe`. This does not delete the app, its data or the database.
 
-**If it will not start.** Read `logs\error.log`. The usual causes are a missing `.env` value (the message names it), SQL Server not allowing TCP/IP or SQL logins, or a wrong database login.
+**If it will not start.** Read `logs\error.log`. The usual causes are a missing `.env` value (the message names it), MariaDB refusing the login (logins are per host), or a wrong database login.
 
 ## Deploying on an Ubuntu server
 
-The same app runs on Ubuntu (or any systemd Linux). Nothing in `src/` is Windows-specific, and the app database is still SQL Server (this app does not need a Linux database).
+The same app runs on Ubuntu (or any systemd Linux). Nothing in `src/` is Windows-specific, and the app database is MariaDB (install it with `sudo apt install mariadb-server`; the same server can also hold `dev_arjuna` and `dev_kenji`).
 
 1. Install Node.js 20 or newer. For example Node 24 LTS: `curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs`.
 2. On your own computer run `bash deploy/package-release.sh`. It now builds both the `.zip` and a `report-server-<version>-<date>.tar.gz`. Copy the `.tar.gz` to the server and unpack it, for example `sudo tar -xzf report-server-*.tar.gz -C /opt` (gives `/opt/report-server`). Or clone the repository there and let the script run `npm ci`.
-3. Make sure SQL Server 2016 or newer (here or elsewhere) allows TCP/IP and SQL logins, and that this server can reach it (port 1433).
+3. Make sure MariaDB 10.5 or newer is running (here or elsewhere), and that this server can reach it (port 3306). Create the app database with `sudo mysql < deploy/create-database.sql` after editing the password in that file, or let the setup script create it.
 4. In the app folder:
    ```bash
    sudo bash deploy/setup-ubuntu.sh
    ```
-   It asks for the SQL Server details and the first admin login, writes `.env` (mode 600) with fresh secrets, optionally creates the empty database, creates a `reportserver` system user, installs and starts the `report-server` systemd service (starts on boot, restarts 5 seconds after a crash), waits for `/healthz`, and removes the admin password from `.env`. Use `PORT=8080 sudo -E bash deploy/setup-ubuntu.sh` for another port.
+   It asks for the MariaDB details and the first admin login, writes `.env` (mode 600) with fresh secrets, optionally creates the empty database, creates a `reportserver` system user, installs and starts the `report-server` systemd service (starts on boot, restarts 5 seconds after a crash), waits for `/healthz`, and removes the admin password from `.env`. Use `PORT=8080 sudo -E bash deploy/setup-ubuntu.sh` for another port.
 5. Open `http://<server>:3000`. If `ufw` is on, allow the port: `sudo ufw allow 3000/tcp`.
 6. **Back up `ENCRYPTION_KEY`** from `.env`, and check the server time zone (`timedatectl`): scheduled reports use it.
 

@@ -60,10 +60,10 @@ function createReportService({ db, reportsDir }) {
       return !!row;
     },
     async search(q, user) {
-      const like = '%' + String(q || '').replace(/[%_[]/g, (c) => '[' + c + ']') + '%';
+      const like = '%' + String(q || '').replace(/[\\%_]/g, (c) => '\\' + c) + '%';
       return (await db.query(
-        `SELECT TOP 100 r.*, f.name AS folder_name FROM reports r JOIN folders f ON f.id = r.folder_id
-         WHERE f.is_system = 0 AND ${FOLDER_OPEN_SQL} AND (r.name LIKE @like OR r.title LIKE @like) ORDER BY r.name`,
+        `SELECT r.*, f.name AS folder_name FROM reports r JOIN folders f ON f.id = r.folder_id
+         WHERE f.is_system = 0 AND ${FOLDER_OPEN_SQL} AND (r.name LIKE @like OR r.title LIKE @like) ORDER BY r.name LIMIT 100`,
         { like, ...who(user) })).map(publicReport);
     },
     async getRow(id) {
@@ -91,13 +91,12 @@ function createReportService({ db, reportsDir }) {
       const file = `${crypto.randomUUID()}.rdl`;
       fs.writeFileSync(path.join(reportsDir, file), xml, 'utf8');
       try {
-        const row = await db.one(
+        const row = await db.query(
           `INSERT INTO reports (folder_id, name, file_path, datasource_name, connection_id, title, warnings, uploaded_by)
-           OUTPUT INSERTED.id
            VALUES (@folderId, @name, @file, @ds, @connId, @title, @warnings, @userId)`,
           { folderId, name, file, ds: def.dataSource.reference || def.dataSource.name, connId, title: def.title, warnings: JSON.stringify(def.warnings), userId }
         );
-        return { id: row.id, name, warnings: def.warnings, connectionId: connId, autoMatched, dataSourceName: def.dataSource.reference };
+        return { id: row.insertId, name, warnings: def.warnings, connectionId: connId, autoMatched, dataSourceName: def.dataSource.reference };
       } catch (e) {
         fs.unlink(path.join(reportsDir, file), () => {});
         throw e;
@@ -113,7 +112,7 @@ function createReportService({ db, reportsDir }) {
       fs.writeFileSync(tmp, xml, 'utf8');
       fs.renameSync(tmp, filePath(r));
       await db.query(
-        `UPDATE reports SET title = @title, warnings = @warnings, datasource_name = @ds, updated_at = SYSUTCDATETIME() WHERE id = @id`,
+        `UPDATE reports SET title = @title, warnings = @warnings, datasource_name = @ds, updated_at = UTC_TIMESTAMP(3) WHERE id = @id`,
         { id, title: def.title, warnings: JSON.stringify(def.warnings), ds: def.dataSource.reference || def.dataSource.name }
       );
       cache.delete(id);
@@ -137,7 +136,7 @@ function createReportService({ db, reportsDir }) {
       const clash = await db.one('SELECT id FROM reports WHERE folder_id = @f AND name = @n AND id <> @id', { f: newFolder, n: newName, id });
       if (clash) throw bad('A report with that name already exists in that folder', 409);
       await db.query(
-        `UPDATE reports SET name = @n, folder_id = @f, connection_id = @c, updated_at = SYSUTCDATETIME() WHERE id = @id`,
+        `UPDATE reports SET name = @n, folder_id = @f, connection_id = @c, updated_at = UTC_TIMESTAMP(3) WHERE id = @id`,
         { id, n: newName, f: newFolder, c: connectionId === undefined ? r.connection_id : connectionId }
       );
     },

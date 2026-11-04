@@ -1,6 +1,6 @@
 'use strict';
 // First-run setup site. It runs INSTEAD of the app when .env is incomplete (or with --setup), asks for the
-// SQL Server details, checks them, creates the database if needed, writes .env, then hands over to the real app.
+// MariaDB details, checks them, creates the database if needed, writes .env, then hands over to the real app.
 // Everything is gated by a one-time code printed in the server console/log, so nobody else on the network can
 // reconfigure the server.
 const path = require('path');
@@ -17,15 +17,15 @@ const bad = (res, error, status = 400, extra) => res.status(status).json({ error
 function validateForm(b) {
   const str = (v) => (typeof v === 'string' ? v.trim() : '');
   const server = str(b.server);
-  if (!server || server.length > 255 || /[\s\0'"]/.test(server)) return { error: 'SQL Server host is required, for example 10.0.0.5 or 10.0.0.5\\INSTANCE' };
+  if (!server || server.length > 255 || /[\s\0'"]/.test(server)) return { error: 'MariaDB host is required, for example localhost or 10.0.0.5' };
   const portRaw = str(String(b.port === undefined || b.port === null ? '' : b.port));
-  let port = 1433;
+  let port = 3306;
   if (portRaw) {
     port = Number(portRaw);
     if (!Number.isInteger(port) || port < 1 || port > 65535) return { error: 'Port must be between 1 and 65535 (or empty)' };
   }
-  const database = str(b.database) || 'ReportServer';
-  if (!/^[A-Za-z0-9_]{1,100}$/.test(database)) return { error: 'Database name may only contain letters, digits and underscores' };
+  const database = str(b.database) || 'reportserver';
+  if (!/^[A-Za-z0-9_]{1,64}$/.test(database)) return { error: 'Database name may only contain letters, digits and underscores' };
   const user = str(b.user);
   if (!user || user.length > 128) return { error: 'Login name is required' };
   const password = typeof b.password === 'string' ? b.password : '';
@@ -33,7 +33,7 @@ function validateForm(b) {
   if (/[\r\n\0]/.test(password) || (password.includes("'") && password.includes('"'))) {
     return { error: 'The password cannot contain line breaks, or both single and double quotes' };
   }
-  return { value: { server, port, database, user, password, trustServerCertificate: b.trustCert !== false } };
+  return { value: { server, port, database, user, password } };
 }
 
 function createSetupApp({ envPath, templatePath, code, existingKeyOk, inspect, createDb, onApplied }) {
@@ -99,7 +99,7 @@ function createSetupApp({ envPath, templatePath, code, existingKeyOk, inspect, c
       // Secrets: keep what is already there. A new ENCRYPTION_KEY would make saved connection passwords unreadable.
       const updates = {
         APP_DB_SERVER: f.value.server, APP_DB_PORT: String(f.value.port), APP_DB_NAME: f.value.database,
-        APP_DB_USER: f.value.user, APP_DB_PASSWORD: f.value.password, APP_DB_TRUST_CERT: String(f.value.trustServerCertificate),
+        APP_DB_USER: f.value.user, APP_DB_PASSWORD: f.value.password,
       };
       const supplied = typeof body.encryptionKey === 'string' ? body.encryptionKey.trim() : '';
       if (supplied) {

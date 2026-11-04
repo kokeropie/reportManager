@@ -28,11 +28,10 @@ function load(env = process.env) {
     encryptionKey: env.ENCRYPTION_KEY || '',
     appDb: {
       server: env.APP_DB_SERVER || 'localhost',
-      port: parseInt(env.APP_DB_PORT || '1433', 10),
+      port: parseInt(env.APP_DB_PORT || '3306', 10),
       database: env.APP_DB_NAME || 'ReportServer',
       user: env.APP_DB_USER || '',
       password: env.APP_DB_PASSWORD || '',
-      trustServerCertificate: bool(env.APP_DB_TRUST_CERT, true),
     },
     reportsDir: env.REPORTS_DIR || path.join(__dirname, '..', 'reports'),
     outputDir: env.OUTPUT_DIR || path.join(__dirname, '..', 'output'),

@@ -3,7 +3,7 @@
 #
 #   sudo bash deploy/setup-ubuntu.sh            # PORT=3000 by default; override with PORT=8080 sudo -E bash ...
 #
-# It checks Node, creates .env with fresh secrets, optionally creates the SQL Server database, installs a systemd
+# It checks Node, creates .env with fresh secrets, optionally creates the MariaDB database, installs a systemd
 # service (report-server, runs as its own user, restarts 5 seconds after a crash), checks /healthz, then removes
 # the first-admin password from .env. Safe to run again: an existing .env is never overwritten.
 # Not yet run on a real server. Read it once before using it.
@@ -55,12 +55,11 @@ if [ -f .env ]; then
   echo ".env already exists, keeping it."
 else
   echo "Answer a few questions. Secrets are generated for you."
-  DB_SERVER="$(ask 'SQL Server host (where the app database lives)' 'localhost')"
-  DB_PORT="$(ask 'SQL Server port' '1433')"
-  DB_NAME="$(ask 'App database name' 'ReportServer')"
+  DB_SERVER="$(ask 'MariaDB host (where the app database lives)' 'localhost')"
+  DB_PORT="$(ask 'MariaDB port' '3306')"
+  DB_NAME="$(ask 'App database name' 'reportserver')"
   DB_USER="$(ask 'App database login' 'report_app')"
   DB_PASS="$(ask_secret 'App database password')"
-  DB_TRUST="$(ask 'Trust the SQL Server certificate? (true if it is self-signed)' 'true')"
   ADMIN_USER="$(ask 'First admin username' 'admin')"
   ADMIN_PASS="$(ask_secret 'First admin password (min 8 characters)')"
   [ "${#ADMIN_PASS}" -ge 8 ] || { echo "The admin password must be at least 8 characters." >&2; exit 1; }
@@ -68,14 +67,14 @@ else
 
   # Fill .env.example with node so quoting is exact (dotenv: single quotes keep every character as typed).
   RS_PORT="$PORT" RS_DB_SERVER="$DB_SERVER" RS_DB_PORT="$DB_PORT" RS_DB_NAME="$DB_NAME" RS_DB_USER="$DB_USER" \
-  RS_DB_PASS="$DB_PASS" RS_DB_TRUST="$DB_TRUST" RS_ADMIN_USER="$ADMIN_USER" RS_ADMIN_PASS="$ADMIN_PASS" RS_OUT_DIR="$OUT_DIR" \
+  RS_DB_PASS="$DB_PASS" RS_ADMIN_USER="$ADMIN_USER" RS_ADMIN_PASS="$ADMIN_PASS" RS_OUT_DIR="$OUT_DIR" \
   "$NODE_BIN" -e '
     const fs = require("fs"), crypto = require("crypto"), e = process.env;
     const q = (v) => { if (!v.includes("\x27")) return "\x27" + v + "\x27"; if (!v.includes("\"")) return "\"" + v + "\""; throw new Error("A value contains both single and double quotes. Use a password without quotes."); };
     const map = {
       PORT: e.RS_PORT, SESSION_SECRET: crypto.randomBytes(48).toString("hex"), ENCRYPTION_KEY: crypto.randomBytes(32).toString("hex"),
       APP_DB_SERVER: e.RS_DB_SERVER, APP_DB_PORT: e.RS_DB_PORT, APP_DB_NAME: e.RS_DB_NAME, APP_DB_USER: q(e.RS_DB_USER),
-      APP_DB_PASSWORD: q(e.RS_DB_PASS), APP_DB_TRUST_CERT: e.RS_DB_TRUST, ADMIN_USERNAME: e.RS_ADMIN_USER, ADMIN_PASSWORD: q(e.RS_ADMIN_PASS),
+      APP_DB_PASSWORD: q(e.RS_DB_PASS), ADMIN_USERNAME: e.RS_ADMIN_USER, ADMIN_PASSWORD: q(e.RS_ADMIN_PASS),
     };
     const lines = fs.readFileSync(".env.example", "utf8").split(/\r?\n/).map((l) => {
       const m = /^([A-Z_]+)=/.exec(l);
@@ -88,11 +87,11 @@ else
   echo ".env written. BACK UP the ENCRYPTION_KEY line somewhere safe: without it, stored connection passwords cannot be read."
 
   step "4/6 App database"
-  echo "The database '$DB_NAME' and login '$DB_USER' must exist (deploy/create-database.sql shows how; run it with sqlcmd or SSMS)."
+  echo "The database '$DB_NAME' and login '$DB_USER' must exist on MariaDB (deploy/create-database.sql shows how: edit it, then 'sudo mysql < deploy/create-database.sql')."
   if [ "$(ask "Create an empty database '$DB_NAME' now using the login above (needs the right to create databases)? (y/n)" 'n')" = y ]; then
     "$NODE_BIN" scripts/create-app-database.js || echo "Could not create it. Create the database by hand with deploy/create-database.sql."
   fi
-  read -r -p "Press Enter once the database and login exist (SQL Server must allow TCP/IP and SQL logins) " _
+  read -r -p "Press Enter once the database and login exist (MariaDB must accept this login from this machine) " _
 fi
 
 step "5/6 systemd service"

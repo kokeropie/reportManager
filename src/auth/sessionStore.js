@@ -12,7 +12,7 @@ class SqlSessionStore extends session.Store {
 
   get(sid, cb) {
     this.db
-      .one('SELECT sess FROM sessions WHERE sid = @sid AND expires_at > SYSUTCDATETIME()', { sid })
+      .one('SELECT sess FROM sessions WHERE sid = @sid AND expires_at > UTC_TIMESTAMP(3)', { sid })
       .then((row) => cb(null, row ? JSON.parse(row.sess) : null))
       .catch(cb);
   }
@@ -22,9 +22,8 @@ class SqlSessionStore extends session.Store {
     const userId = sess.userId || null;
     this.db
       .query(
-        `MERGE sessions AS t USING (SELECT @sid AS sid) AS s ON t.sid = s.sid
-         WHEN MATCHED THEN UPDATE SET sess = @sess, user_id = @userId, expires_at = @expires
-         WHEN NOT MATCHED THEN INSERT (sid, sess, user_id, expires_at) VALUES (@sid, @sess, @userId, @expires);`,
+        `INSERT INTO sessions (sid, sess, user_id, expires_at) VALUES (@sid, @sess, @userId, @expires)
+         ON DUPLICATE KEY UPDATE sess = VALUES(sess), user_id = VALUES(user_id), expires_at = VALUES(expires_at)`,
         { sid, sess: JSON.stringify(sess), userId, expires }
       )
       .then(() => cb && cb(null))
@@ -54,7 +53,7 @@ class SqlSessionStore extends session.Store {
   }
 
   cleanup() {
-    return this.db.query('DELETE FROM sessions WHERE expires_at <= SYSUTCDATETIME()');
+    return this.db.query('DELETE FROM sessions WHERE expires_at <= UTC_TIMESTAMP(3)');
   }
 }
 

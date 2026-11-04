@@ -3,7 +3,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File .\deploy\setup-windows.ps1
 #
-# It checks Node, creates .env with fresh secrets, optionally creates the SQL Server database,
+# It checks Node, creates .env with fresh secrets, optionally creates the MariaDB database,
 # installs the Windows service with NSSM, checks /healthz, then removes the first-admin password from .env.
 # Safe to run again: an existing .env is never overwritten.
 param(
@@ -79,12 +79,11 @@ if (Test-Path $envPath) {
   Write-Host '.env already exists, keeping it.'
 } else {
   Write-Host 'Answer a few questions. Secrets are generated for you.'
-  $dbServer = Ask 'SQL Server host (where the app database lives)' 'localhost'
-  $dbPort = Ask 'SQL Server port' '1433'
-  $dbName = Ask 'App database name' 'ReportServer'
+  $dbServer = Ask 'MariaDB host (where the app database lives)' 'localhost'
+  $dbPort = Ask 'MariaDB port' '3306'
+  $dbName = Ask 'App database name' 'reportserver'
   $dbUser = Ask 'App database login' 'report_app'
   $dbPass = AskSecret 'App database password'
-  $trust = Ask 'Trust the SQL Server certificate? (true if it is self-signed)' 'true'
   $adminUser = Ask 'First admin username' 'admin'
   $adminPass = AskSecret 'First admin password (min 8 characters)'
   if ($adminPass.Length -lt 8) { throw 'The admin password must be at least 8 characters.' }
@@ -93,7 +92,7 @@ if (Test-Path $envPath) {
   $map = @{
     'PORT' = "$Port"; 'SESSION_SECRET' = (RandomHex 48); 'ENCRYPTION_KEY' = (RandomHex 32)
     'APP_DB_SERVER' = $dbServer; 'APP_DB_PORT' = $dbPort; 'APP_DB_NAME' = $dbName
-    'APP_DB_USER' = (EnvQuote $dbUser); 'APP_DB_PASSWORD' = (EnvQuote $dbPass); 'APP_DB_TRUST_CERT' = $trust
+    'APP_DB_USER' = (EnvQuote $dbUser); 'APP_DB_PASSWORD' = (EnvQuote $dbPass)
     'ADMIN_USERNAME' = $adminUser; 'ADMIN_PASSWORD' = (EnvQuote $adminPass)
   }
   $outDir = Ask 'Folder for saved scheduled reports (blank = the "output" folder inside the app)' ''
@@ -108,17 +107,12 @@ if (Test-Path $envPath) {
 
   # ---- 4. Database ----
   Step '4/6 App database'
-  $sqlcmd = Get-Command sqlcmd.exe -ErrorAction SilentlyContinue
-  if ($sqlcmd) {
-    $go = Ask "sqlcmd found. Create database '$dbName' and login '$dbUser' now using your Windows account? (y/n)" 'n'
-    if ($go -eq 'y') {
-      & sqlcmd.exe -S "$dbServer,$dbPort" -E -b -i (Join-Path $AppDir 'deploy\create-database.sql') -v DbName="$dbName" LoginName="$dbUser" LoginPassword="$dbPass"
-      if ($LASTEXITCODE -ne 0) { Write-Warning 'sqlcmd reported an error. Create the database by hand with deploy\create-database.sql.' }
-    }
-  } else {
-    Write-Host 'sqlcmd was not found. Create the database yourself with deploy\create-database.sql (SSMS, SQLCMD mode).'
+  $go = Ask "Create an empty database '$dbName' now using the login above (needs the right to create databases)? (y/n)" 'n'
+  if ($go -eq 'y') {
+    & node (Join-Path $AppDir 'scripts\create-app-database.js')
+    if ($LASTEXITCODE -ne 0) { Write-Warning 'Could not create it. Create the database by hand with deploy\create-database.sql (run on the MariaDB server).' }
   }
-  Read-Host 'Press Enter once the database and login exist (SQL Server must allow TCP/IP and SQL logins)' | Out-Null
+  Read-Host 'Press Enter once the database and login exist (MariaDB must accept this login from this machine)' | Out-Null
 }
 
 # ---- 5. Service ----
@@ -152,8 +146,8 @@ if (-not $NssmPath) {
 }
 Write-Host "Using NSSM at $NssmPath"
 $sqlSvc = ''
-$local = Get-Service -Name 'MSSQLSERVER' -ErrorAction SilentlyContinue
-if ($local) { $sqlSvc = 'MSSQLSERVER'; Write-Host 'SQL Server runs on this machine, so the service will start after it.' }
+$local = Get-Service -Name 'MariaDB' -ErrorAction SilentlyContinue
+if ($local) { $sqlSvc = 'MariaDB'; Write-Host 'MariaDB runs on this machine, so the service will start after it.' }
 if (Get-Service -Name 'ReportServer' -ErrorAction SilentlyContinue) {
   Write-Host 'The ReportServer service already exists. Restarting it.'
   & $NssmPath restart ReportServer | Out-Null

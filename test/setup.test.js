@@ -10,7 +10,7 @@ const { updateEnvText, quote } = require('../src/setup/env');
 const dotenv = require('dotenv');
 
 const TEMPLATE = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
-const GOOD = { code: 'abcd-efgh-jkmn', server: '117.102.85.247\\ins', port: '', database: 'ReportServer', user: 'sa', password: "p@ss#w0rd 'x", trustCert: true, createDb: true, adminUsername: 'boss', adminPassword: 'long-enough-1' };
+const GOOD = { code: 'abcd-efgh-jkmn', server: '10.0.0.5', port: '', database: 'ReportServer', user: 'root', password: "p@ss#w0rd 'x", trustCert: true, createDb: true, adminUsername: 'boss', adminPassword: 'long-enough-1' };
 
 async function start(opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'setup-test-'));
@@ -64,7 +64,7 @@ test('form validation', () => {
   assert.ok(validateForm({ ...GOOD, user: '' }).error);
   assert.ok(validateForm({ ...GOOD, password: '' }).error);
   assert.ok(validateForm({ ...GOOD, password: 'a\'b"c' }).error);
-  assert.strictEqual(validateForm(GOOD).value.port, 1433);
+  assert.strictEqual(validateForm(GOOD).value.port, 3306);
 });
 
 test('apply: writes .env that the app can read back, then hands over with the first admin', async (t) => {
@@ -77,8 +77,8 @@ test('apply: writes .env that the app can read back, then hands over with the fi
   await new Promise((ok) => setTimeout(ok, 50));
   assert.deepStrictEqual(s.calls.applied.admin, { username: 'boss', password: 'long-enough-1' });
   const env = dotenv.parse(fs.readFileSync(s.envPath));
-  assert.strictEqual(env.APP_DB_SERVER, '117.102.85.247\\ins');
-  assert.strictEqual(env.APP_DB_USER, 'sa');
+  assert.strictEqual(env.APP_DB_SERVER, '10.0.0.5');
+  assert.strictEqual(env.APP_DB_USER, 'root');
   assert.strictEqual(env.APP_DB_PASSWORD, "p@ss#w0rd 'x", 'password with # space and quote survives');
   assert.match(env.ENCRYPTION_KEY, /^[0-9a-f]{64}$/);
   assert.ok(env.SESSION_SECRET.length >= 32);
@@ -155,23 +155,32 @@ test('only the setup page is served; everything else is 404, healthz says not re
 });
 
 test('inspect counts never mention a table that may not exist (fresh database)', async () => {
-  const sql = require('mssql');
+  const mysql = require('mysql2/promise');
   const queries = [];
-  const orig = sql.ConnectionPool;
-  sql.ConnectionPool = class {
-    async connect() {}
-    async close() {}
-    request() {
-      const self = { input() { return self; }, async query(q) { queries.push(q); return { recordset: [{ has_users: 0, has_connections: 0 }] }; } };
-      return self;
-    }
-  };
+  const orig = mysql.createConnection;
+  mysql.createConnection = async () => ({
+    async query(q) { queries.push(q); return [[]]; },
+    async end() {},
+  });
   try {
     const { inspectAppDb } = require('../src/setup/db');
-    const r = await inspectAppDb({ server: 'h', port: 1433, database: 'ReportServer', user: 'u', password: 'p', trustServerCertificate: true });
+    const r = await inspectAppDb({ server: 'h', port: 3306, database: 'reportserver', user: 'u', password: 'p' });
     assert.deepStrictEqual([r.ok, r.users, r.connections], [true, 0, 0]);
-    assert.ok(queries.every((q) => !/FROM\s+(users|connections)/i.test(q)), 'no query touches a missing table');
+    assert.ok(queries.every((q) => !/FROM\s+`?(users|connections)`?/i.test(q)), 'no query touches a missing table');
   } finally {
-    sql.ConnectionPool = orig;
+    mysql.createConnection = orig;
+  }
+});
+
+test('inspect reports a missing database instead of failing', async () => {
+  const mysql = require('mysql2/promise');
+  const orig = mysql.createConnection;
+  mysql.createConnection = async () => { throw Object.assign(new Error("Unknown database 'x'"), { code: 'ER_BAD_DB_ERROR' }); };
+  try {
+    const { inspectAppDb } = require('../src/setup/db');
+    const r = await inspectAppDb({ server: 'h', port: 3306, database: 'x', user: 'u', password: 'p' });
+    assert.deepStrictEqual([r.ok, r.missingDb], [true, true]);
+  } finally {
+    mysql.createConnection = orig;
   }
 });

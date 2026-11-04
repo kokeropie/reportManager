@@ -78,6 +78,8 @@ function workspace() {
   fs.writeFileSync(path.join(bin, 'mysql'), `#!/bin/sh
 for a in "$@"; do case "$a" in --database=*) db="\${a#--database=}";; --defaults-extra-file=*) cnf="\${a#*=}";; esac; done
 cat > "${out}/$db.sql"
+echo "$@" > "${out}/$db.args"
+if [ -f "${out}/FAIL_$db" ]; then cat "${out}/FAIL_$db" >&2; exit 1; fi
 cp "$cnf" "${out}/$db.cnf"
 `, { mode: 0o755 });
   const oldPath = process.env.PATH;
@@ -168,12 +170,15 @@ function fakeDb(cfgRow) {
   const calls = [];
   return {
     calls,
-    async query(text, p) { calls.push({ text, p }); return []; },
+    async query(text, p) {
+      calls.push({ text, p });
+      if (/INSERT INTO dbsync_runs/.test(text)) return Object.assign([], { insertId: 7, affectedRows: 1 });
+      if (/UPDATE dbsync_config/.test(text)) return Object.assign([], { affectedRows: 1 });
+      return [];
+    },
     async one(text, p) {
       calls.push({ text, p });
-      if (/INSERT INTO dbsync_runs/.test(text)) return { id: 7 };
       if (/SELECT \* FROM dbsync_config/.test(text)) return cfgRow;
-      if (/UPDATE dbsync_config/.test(text)) return { id: 1 };
       return null;
     },
   };
@@ -216,4 +221,30 @@ test('scheduler: runs a due job once and moves its next time; ignores a future o
   db = fakeDb(row({ enabled: false }));
   assert.strictEqual(await createDbSyncScheduler({ db, runner, now: () => now, log: quiet }).tick(), 0);
   assert.strictEqual(started.length, 0);
+});
+
+test('restore: SQL errors during import are ignored (--force); the run completes with a warning', async () => {
+  const w = workspace();
+  try {
+    w.gz('dev_arjuna_20261103_000000.sql.gz', 'A'); w.gz('dev_kenji_20261103_000000.sql.gz', 'K');
+    fs.writeFileSync(path.join(w.out, 'FAIL_dev_arjuna'), "ERROR 1062 (23000) at line 42: Duplicate entry '1' for key 'PRIMARY'\nERROR 1146 (42S02) at line 90: Table 'x' doesn't exist\n");
+    const res = await runSync({ cfg: w.cfg, source: localTarget(), dest: localTarget(), now: () => new Date(2026, 10, 3, 2, 0), onLine() {} });
+    assert.strictEqual(res.ok, true, res.summary);
+    assert.strictEqual(res.warnings, true);
+    assert.match(res.summary, /Completed with errors in: dev_arjuna/);
+    assert.match(res.lines.join('\n'), /2 error message\(s\), ignored/);
+    assert.match(fs.readFileSync(path.join(w.out, 'dev_arjuna.args'), 'utf8'), /--force/);
+    assert.strictEqual(fs.readFileSync(path.join(w.out, 'dev_kenji.sql'), 'utf8'), 'K', 'the other database is still restored');
+  } finally { w.done(); }
+});
+
+test('restore: a login or connection failure still fails that database', async () => {
+  const w = workspace();
+  try {
+    w.gz('dev_arjuna_20261103_000000.sql.gz', 'A'); w.gz('dev_kenji_20261103_000000.sql.gz', 'K');
+    fs.writeFileSync(path.join(w.out, 'FAIL_dev_kenji'), "ERROR 1045 (28000): Access denied for user 'u'@'localhost'\n");
+    const res = await runSync({ cfg: w.cfg, source: localTarget(), dest: localTarget(), now: () => new Date(2026, 10, 3, 2, 0), onLine() {} });
+    assert.strictEqual(res.ok, false);
+    assert.match(res.summary, /Failed: dev_kenji/);
+  } finally { w.done(); }
 });

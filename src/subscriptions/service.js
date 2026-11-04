@@ -106,14 +106,14 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
 
     async create(user, body) {
       const v = await build(user, body, null);
-      const row = await db.one(
+      const row = await db.query(
         `INSERT INTO subscriptions (user_id, report_id, name, params, format, schedule, folder, enabled, next_run_at)
-         OUTPUT INSERTED.id VALUES (@userId, @reportId, @name, @params, @format, @schedule, @folder, 1, @next)`,
+         VALUES (@userId, @reportId, @name, @params, @format, @schedule, @folder, 1, @next)`,
         { userId: user.id, reportId: v.reportId, name: v.name, params: JSON.stringify(v.params), format: v.format,
           schedule: JSON.stringify(v.schedule), folder: v.folder, next: nextRun(v.schedule, now()) }
       );
       onChange();
-      return publicSub(await mine(row.id, user.id));
+      return publicSub(await mine(row.insertId, user.id));
     },
 
     async update(user, id, body) {
@@ -150,16 +150,16 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
     async runs(user, id, limit = 50) {
       await mine(id, user.id);
       return (await db.query(
-        `SELECT TOP (@limit) id, started_at, finished_at, status, row_count, file_name, file_size, error
-         FROM subscription_runs WHERE subscription_id = @id AND user_id = @userId ORDER BY id DESC`, { id, userId: user.id, limit })).map(publicRun);
+        `SELECT id, started_at, finished_at, status, row_count, file_name, file_size, error
+         FROM subscription_runs WHERE subscription_id = @id AND user_id = @userId ORDER BY id DESC LIMIT @limit`, { id, userId: user.id, limit: Math.max(1, Math.floor(Number(limit)) || 50) })).map(publicRun);
     },
 
     // Everything the user has saved, newest first.
     async files(user, limit = 200) {
       return (await db.query(
-        `SELECT TOP (@limit) rn.id, rn.started_at, rn.finished_at, rn.status, rn.row_count, rn.file_name, rn.file_size, rn.error, s.name AS subscription_name
+        `SELECT rn.id, rn.started_at, rn.finished_at, rn.status, rn.row_count, rn.file_name, rn.file_size, rn.error, s.name AS subscription_name
          FROM subscription_runs rn JOIN subscriptions s ON s.id = rn.subscription_id
-         WHERE rn.user_id = @userId AND rn.file_name IS NOT NULL ORDER BY rn.id DESC`, { userId: user.id, limit }))
+         WHERE rn.user_id = @userId AND rn.file_name IS NOT NULL ORDER BY rn.id DESC LIMIT @limit`, { userId: user.id, limit: Math.max(1, Math.floor(Number(limit)) || 200) }))
         .map((r) => ({ ...publicRun(r), subscriptionName: r.subscription_name }));
     },
 

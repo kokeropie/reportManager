@@ -44,7 +44,7 @@ function createAuditService(db) {
       const pg = Math.max(1, page);
       const rows = await db.query(
         `SELECT id, logged_at, username, action, report_id, report_name, params, row_count, status, error, ip, user_agent
-         FROM audit_log ${w} ORDER BY id DESC OFFSET @off ROWS FETCH NEXT @size ROWS ONLY`,
+         FROM audit_log ${w} ORDER BY id DESC LIMIT @size OFFSET @off`,
         { ...p, off: (pg - 1) * size, size }
       );
       return {
