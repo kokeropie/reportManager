@@ -20,6 +20,7 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
   }
 
   async function execute(id, kind, cfg) {
+    const onStep = (text) => { if (current) { current.step = text; current.stepAt = Date.now(); } };
     const lines = [];
     const onLine = (l) => { lines.push(l); db.query('UPDATE dbsync_runs SET log=@log WHERE id=@id', { id, log: lines.join('\n') }).catch(() => {}); };
     let source = null, dest = null;
@@ -27,7 +28,7 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
       dest = await open(cfg.dest).open();
       if (kind === 'sync') {
         source = await open(cfg.source).open();
-        return await runSync({ cfg, source, dest, now, onLine, timingLog, runId: id });
+        return await runSync({ cfg, source, dest, now, onLine, onStep, timingLog, runId: id });
       }
       return await runCleanup({ cfg, dest, onLine });
     } catch (e) {
@@ -44,7 +45,7 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
     // Starts a run and returns { id, done } straight away. Throws 409 if one is already running.
     async start(kind, by) {
       if (current) throw Object.assign(new Error(`A ${current.kind} is already running`), { status: 409 });
-      current = { kind };
+      current = { kind, startedAt: Date.now(), step: '', stepAt: Date.now() };
       try {
         const cfg = await service.getWithSecret();
         const problem = !cfg.source.host && kind === 'sync' ? 'Fill in the backup server' : !cfg.mysql.username && kind === 'sync' ? 'Fill in the MySQL login'

@@ -95,12 +95,21 @@ export async function renderDbSync() {
     try { await api('POST', '/db-sync/run/' + kind); view.replaceChildren(); await renderDbSync(); } catch (err) { say(box, err.message); }
   } }, label);
 
+  const dur = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`; };
+  const live = h('div', { class: 'card', style: 'display:none' });
   async function drawHistory() {
-    const { runs, running: now } = await api('GET', '/db-sync/runs');
+    const { runs, running: now, progress } = await api('GET', '/db-sync/runs');
+    if (progress) {
+      const skew = Date.now() - progress.now; // server and browser clocks may differ
+      live.style.display = '';
+      live.replaceChildren(h('h3', {}, progress.kind === 'sync' ? 'Copy + restore is running' : 'Cleanup is running'),
+        h('p', {}, progress.step || 'Starting...'),
+        h('p', { class: 'muted' }, `Running for ${dur(Date.now() - skew - progress.startedAt)}. This step for ${dur(Date.now() - skew - progress.stepAt)}. Updates every 3 seconds.`));
+    } else { live.style.display = 'none'; live.replaceChildren(); }
     history.replaceChildren(h('h3', {}, 'History'),
       runs.length ? h('table', {}, h('thead', {}, h('tr', {}, ['Started', 'Job', 'By', 'Result', ''].map((t) => h('th', {}, t)))),
         h('tbody', {}, runs.map((r) => h('tr', {}, h('td', {}, when(r.startedAt)), h('td', {}, r.kind === 'sync' ? 'Copy + restore' : 'Cleanup'), h('td', {}, r.by),
-          h('td', {}, r.status === 'running' ? 'Running...' : r.status === 'ok' ? 'OK: ' + (r.summary || '') : r.status === 'warning' ? 'Done with errors: ' + (r.summary || '') : 'Failed: ' + (r.summary || '')),
+          h('td', {}, r.status === 'running' ? 'Running (see the box above)' : r.status === 'ok' ? 'OK: ' + (r.summary || '') : r.status === 'warning' ? 'Done with errors: ' + (r.summary || '') : 'Failed: ' + (r.summary || '')),
           h('td', {}, r.log ? h('details', {}, h('summary', {}, 'Log'), h('pre', {}, r.log)) : ''))))) : h('p', { class: 'muted' }, 'Nothing has run yet.'));
     if (now && location.hash === '#/db-sync') poll = setTimeout(drawHistory, 3000);
     else if (running && !now && location.hash === '#/db-sync') { view.replaceChildren(); renderDbSync(); }
@@ -112,6 +121,6 @@ export async function renderDbSync() {
       c.enabled ? h('p', {}, `Next copy: ${when(c.nextSyncAt)}. Next cleanup: ${when(c.nextCleanupAt)}.`) : h('p', { class: 'badge warn' }, 'Not running on schedule'),
       form, box,
       h('div', { class: 'row' }, start('sync', 'Run copy + restore now'), start('cleanup', 'Delete files now'), running ? h('span', { class: 'muted' }, `A ${running} is running...`) : '')),
-    history);
+    live, history);
   await drawHistory();
 }

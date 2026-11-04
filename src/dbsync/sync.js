@@ -1,7 +1,7 @@
 'use strict';
 const path = require('path');
 const { copyStream, q } = require('./remote');
-const { timed, fmtBytes } = require('./timingLog');
+const { timed, fmtBytes, fmtMs } = require('./timingLog');
 
 // The work itself: find the newest file per database, copy it, check it, extract it, restore it; and the 6 PM
 // cleanup. Takes already-opened targets so tests can run it on this machine with a fake `mysql`.
@@ -46,7 +46,7 @@ function makeLog(onLine) {
 // Errors that mean nothing was imported at all (login, connection, missing database); these still fail the file.
 const FATAL_RESTORE = /ERROR (1044|1045|1049|2002|2003|2005|2013)\b|Access denied|Can't connect|Unknown database/i;
 
-async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, run }) {
+async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, run, onStep = () => {}, position = '' }) {
   const files = await source.list(cfg.source.dir);
   const latest = pickLatest(files, item.prefix);
   if (!latest) throw new Error(`No file named ${item.prefix}_<date>_<time>.sql.gz in ${cfg.source.dir}`);
@@ -58,29 +58,42 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
   const sql = gz.replace(/\.gz$/, '');
   const T = (step, fn, extra) => timed(tlog, run, latest.name, step, fn, extra);
   const t0 = Date.now();
+  // Tells the screen what is happening right now, and writes a "started" line (the "done" line follows the step).
+  const begin = (text) => { onStep(`${position}${item.prefix}: ${text}`); log.info(`${item.prefix}: ${text}...`); };
+  const took = (since) => fmtMs(Date.now() - since);
 
   // Copy under a .part name and rename when whole, so a broken transfer never looks like a finished file.
+  begin(`copying ${latest.name} (${fmtBytes(latest.size)})`);
+  let ts = Date.now();
   await T('copy', async () => {
     const from = await source.readStream(px.join(cfg.source.dir, latest.name));
     const to = await dest.writeStream(gz + '.part', 0o640);
-    const bytes = await copyStream(from, to);
+    const bytes = await copyStream(from, to, (b) => onStep(`${position}${item.prefix}: copying ${latest.name}: ${fmtBytes(b)} of ${fmtBytes(latest.size)} (${latest.size ? Math.min(100, Math.round((b / latest.size) * 100)) : 0}%)`));
     if (bytes !== latest.size) throw new Error(`Copy incomplete: got ${bytes} of ${latest.size} bytes`);
     await dest.rename(gz + '.part', gz);
   }, `${fmtBytes(latest.size)} (${latest.size} bytes)`);
-  log.info(`${item.prefix}: copied to ${gz}`);
+  log.info(`${item.prefix}: copied to ${gz} in ${took(ts)}`);
 
+  begin(`checking ${latest.name} (gzip -t)`);
+  ts = Date.now();
   let r = await T('verify (gzip -t)', async () => {
     const x = await dest.exec(`gzip -t -- ${q(gz)}`);
     if (x.code !== 0) throw new Error(`The copied file is not a valid gzip file (${x.text || 'gzip -t failed'}). The backup may still have been writing.`);
     return x;
   });
 
+  log.info(`${item.prefix}: check passed in ${took(ts)}`);
+
+  begin(`extracting ${latest.name}`);
+  ts = Date.now();
   await T('unzip', async () => {
     r = await dest.exec(`gzip -dc -- ${q(gz)} > ${q(sql + '.part')} && mv -f -- ${q(sql + '.part')} ${q(sql)}`);
     if (r.code !== 0) throw new Error(`Extract failed: ${r.text || 'exit ' + r.code}`);
   });
-  log.info(`${item.prefix}: extracted to ${sql}`);
+  log.info(`${item.prefix}: extracted to ${sql} in ${took(ts)}`);
 
+  begin(`restoring ${px.basename(sql)} into database ${item.database}`);
+  ts = Date.now();
   await T('restore', async () => {
     r = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} --default-character-set=utf8mb4 --force --database=${q(item.database)} < ${q(sql)}`);
     if (r.code === 127) throw new Error(`The mysql client is not installed on ${dest.label}. On Ubuntu: sudo apt install mysql-client`);
@@ -92,13 +105,13 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
     const msgs = String(r.text || '').split('\n').map((s) => s.trim()).filter(Boolean);
     log.warn(`${item.prefix}: import finished with ${msgs.length || 'some'} error message(s), ignored. First: ${(msgs[0] || 'exit ' + r.code).slice(0, 300)}`);
   }
-  log.info(`${item.prefix}: restored into database ${item.database}${withErrors ? ' (with errors)' : ''}`);
+  log.info(`${item.prefix}: restored into database ${item.database}${withErrors ? ' (with errors)' : ''} in ${took(ts)}`);
   tlog.write(`run=${run} | ${latest.name} | TOTAL | ${withErrors ? 'OK (errors ignored)' : 'OK'} | ${Math.round((Date.now() - t0) / 100) / 10}s`);
   return withErrors;
 }
 
 // Returns { ok, summary, lines }. Each database is handled on its own, so one bad file does not block the other.
-async function runSync({ cfg, source, dest, now = () => new Date(), onLine, timingLog = { write() {} }, runId = '-' }) {
+async function runSync({ cfg, source, dest, now = () => new Date(), onLine, onStep, timingLog = { write() {} }, runId = '-' }) {
   const log = makeLog(onLine);
   timingLog.write(`run=${runId} | sync started | ${cfg.items.length} database(s)`);
   const failed = [];
@@ -108,9 +121,10 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, timi
   try {
     await dest.mkdirp(cfg.dest.dir);
     await dest.writeSecret(cnfPath, optionFile(cfg.mysql));
-    for (const item of cfg.items) {
+    for (const [i, item] of cfg.items.entries()) {
       try {
-        if (await restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog: timingLog, run: runId })) withErrors.push(item.prefix);
+        const position = cfg.items.length > 1 ? `[${i + 1}/${cfg.items.length}] ` : '';
+        if (await restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog: timingLog, run: runId, onStep, position })) withErrors.push(item.prefix);
         done++;
       } catch (e) {
         failed.push(item.prefix);

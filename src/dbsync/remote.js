@@ -141,10 +141,14 @@ function localTarget() {
 }
 
 // Copies a stream and resolves only once the destination has been flushed and closed.
-function copyStream(from, to) {
+function copyStream(from, to, onProgress) {
   return new Promise((resolve, reject) => {
     let bytes = 0;
-    from.on('data', (c) => { bytes += c.length; });
+    let last = 0;
+    from.on('data', (c) => {
+      bytes += c.length;
+      if (onProgress && Date.now() - last > 1000) { last = Date.now(); onProgress(bytes); }
+    });
     from.on('error', (e) => { to.destroy(); reject(e); });
     to.on('error', (e) => { from.destroy(); reject(e); });
     to.on('close', () => resolve(bytes));

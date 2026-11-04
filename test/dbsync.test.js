@@ -331,3 +331,21 @@ test('service.save stores the key encrypted, never returns it, keeps it on blank
   await svc.save({ ...good(), source: { ...good().source, clearKey: true } });
   assert.strictEqual((await svc.get()).source.hasKey, false);
 });
+
+test('runSync reports what it is doing: each step, which file, with start and done lines', async () => {
+  const w = workspace();
+  try {
+    w.gz('dev_arjuna_20261103_000000.sql.gz', 'A'); w.gz('dev_kenji_20261103_000000.sql.gz', 'K');
+    const steps = [], lines = [];
+    const res = await runSync({ cfg: w.cfg, source: localTarget(), dest: localTarget(), now: () => new Date(2026, 10, 3, 2), onLine: (l) => lines.push(l), onStep: (s) => steps.push(s) });
+    assert.strictEqual(res.ok, true, res.summary);
+    const all = steps.join('\n');
+    assert.match(all, /\[1\/2\] dev_arjuna: copying dev_arjuna_20261103_000000\.sql\.gz/);
+    assert.match(all, /\[1\/2\] dev_arjuna: checking/);
+    assert.match(all, /\[2\/2\] dev_kenji: extracting/);
+    assert.match(all, /\[2\/2\] dev_kenji: restoring dev_kenji_20261103_000000\.sql into database dev_kenji/);
+    const text = lines.join('\n');
+    assert.match(text, /dev_arjuna: copying dev_arjuna_20261103_000000\.sql\.gz \(.*\)\.\.\./);
+    assert.match(text, /dev_arjuna: restored into database dev_arjuna in /);
+  } finally { w.done(); }
+});
