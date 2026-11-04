@@ -104,12 +104,17 @@ export async function renderDbSync() {
       live.style.display = '';
       live.replaceChildren(h('h3', {}, progress.kind === 'sync' ? 'Copy + restore is running' : 'Cleanup is running'),
         h('p', {}, progress.step || 'Starting...'),
+        h('div', { class: 'row' }, h('button', { type: 'button', onclick: async (e) => {
+          if (!confirm(progress.kind === 'sync' ? 'Stop the copy and restore now? If it is already restoring, that database stays only partly loaded until the next sync.' : 'Stop the cleanup now?')) return;
+          e.target.disabled = true;
+          try { await api('POST', '/db-sync/stop'); say(box, 'Stopping...', true); } catch (err) { say(box, err.message); e.target.disabled = false; }
+        } }, 'Stop')),
         h('p', { class: 'muted' }, `Running for ${dur(Date.now() - skew - progress.startedAt)}. This step for ${dur(Date.now() - skew - progress.stepAt)}. Updates every 3 seconds.`));
     } else { live.style.display = 'none'; live.replaceChildren(); }
     history.replaceChildren(h('h3', {}, 'History'),
       runs.length ? h('table', {}, h('thead', {}, h('tr', {}, ['Started', 'Job', 'By', 'Result', ''].map((t) => h('th', {}, t)))),
         h('tbody', {}, runs.map((r) => h('tr', {}, h('td', {}, when(r.startedAt)), h('td', {}, r.kind === 'sync' ? 'Copy + restore' : 'Cleanup'), h('td', {}, r.by),
-          h('td', {}, r.status === 'running' ? 'Running (see the box above)' : r.status === 'ok' ? 'OK: ' + (r.summary || '') : r.status === 'warning' ? 'Done with errors: ' + (r.summary || '') : 'Failed: ' + (r.summary || '')),
+          h('td', {}, r.status === 'running' ? 'Running (see the box above)' : r.status === 'ok' ? 'OK: ' + (r.summary || '') : r.status === 'warning' ? 'Done with errors: ' + (r.summary || '') : r.status === 'stopped' ? (r.summary || 'Stopped') : 'Failed: ' + (r.summary || '')),
           h('td', {}, r.log ? h('details', {}, h('summary', {}, 'Log'), h('pre', {}, r.log)) : ''))))) : h('p', { class: 'muted' }, 'Nothing has run yet.'));
     if (now && location.hash === '#/db-sync') poll = setTimeout(drawHistory, 3000);
     else if (running && !now && location.hash === '#/db-sync') { view.replaceChildren(); renderDbSync(); }

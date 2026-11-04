@@ -349,3 +349,33 @@ test('runSync reports what it is doing: each step, which file, with start and do
     assert.match(text, /dev_arjuna: restored into database dev_arjuna in /);
   } finally { w.done(); }
 });
+
+test('Stop: kills a running restore, ends the run as stopped, skips the next database, removes leftovers', async () => {
+  const w = workspace();
+  try {
+    // a restore that never finishes by itself
+    fs.writeFileSync(path.join(w.root, 'bin', 'mysql'), `#!/bin/sh\necho $$ > "${w.out}/pid"\nsleep 60\n`, { mode: 0o755 });
+    w.gz('dev_arjuna_20261103_000000.sql.gz', 'A'); w.gz('dev_kenji_20261103_000000.sql.gz', 'K');
+    const db = fakeDb(null);
+    const service = { getWithSecret: async () => ({ ...w.cfg, source: { host: 'x', dir: w.src }, dest: { host: '', dir: w.dst } }) };
+    const runner = createRunner({ db, service, open: () => localTarget(), log: quiet });
+    const run = await runner.start('sync', 'manual');
+    for (let i = 0; i < 100 && !fs.existsSync(path.join(w.out, 'pid')); i++) await new Promise((r) => setTimeout(r, 50));
+    assert.ok(fs.existsSync(path.join(w.out, 'pid')), 'restore started');
+    const pid = Number(fs.readFileSync(path.join(w.out, 'pid'), 'utf8'));
+    runner.stop('kusuma');
+    const res = await run.done;
+    assert.strictEqual(res.stopped, true);
+    assert.match(res.summary, /Stopped by kusuma/);
+    const fin = db.calls.find((c) => /SET finished_at/.test(c.text));
+    assert.strictEqual(fin.p.s, 'stopped');
+    assert.match(fin.p.log, /partly loaded/);
+    assert.ok(!fin.p.log.includes('dev_kenji: copying'), 'the second database was not started');
+    assert.strictEqual(fs.existsSync(path.join(w.out, 'dev_kenji.sql')), false);
+    let alive = true;
+    try { process.kill(pid, 0); } catch (e) { alive = false; }
+    assert.strictEqual(alive, false, 'the mysql process is gone');
+    assert.strictEqual(runner.busy, null);
+    assert.throws(() => runner.stop('x'), /Nothing is running/);
+  } finally { w.done(); }
+});

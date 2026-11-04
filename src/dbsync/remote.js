@@ -22,6 +22,8 @@ function sshTarget({ host, port = 22, username, password, privateKey, passphrase
   let sftp = null;
   let seenKey = null;
   let rejected = false;
+  const live = new Set(); // streams and commands in flight, so abort() can stop them
+  const track = (s) => { live.add(s); s.once('close', () => live.delete(s)); return s; };
 
   const connect = () => new Promise((resolve, reject) => {
     conn.once('ready', resolve);
@@ -72,8 +74,13 @@ function sshTarget({ host, port = 22, username, password, privateKey, passphrase
       return rows.filter((r) => r.attrs.isFile()).map((r) => ({ name: r.filename, size: r.attrs.size }));
     },
     async size(file) { return (await call('stat', file)).size; },
-    readStream: async (file) => (await getSftp()).createReadStream(file),
-    writeStream: async (file, mode = 0o600) => (await getSftp()).createWriteStream(file, { mode }),
+    readStream: async (file) => track((await getSftp()).createReadStream(file)),
+    writeStream: async (file, mode = 0o600) => track((await getSftp()).createWriteStream(file, { mode })),
+    // Stops whatever is running: ends remote commands, fails open file streams, drops the connection. Used by the Stop button.
+    abort() {
+      for (const s of [...live]) { try { if (s.signal) s.signal('TERM'); s.destroy(new Error('Stopped')); } catch (e) { /* already gone */ } }
+      try { conn.destroy(); } catch (e) { /* already closed */ }
+    },
     rename: (a, b) => call('rename', a, b).catch(async () => { await call('unlink', b).catch(() => {}); return call('rename', a, b); }),
     remove: (file) => call('unlink', file),
     async mkdirp(dir) { const r = await t.exec(`mkdir -p -- ${q(dir)}`); if (r.code !== 0) throw new Error(r.text || `Cannot create ${dir}`); },
@@ -86,6 +93,7 @@ function sshTarget({ host, port = 22, username, password, privateKey, passphrase
       return new Promise((resolve, reject) => {
         conn.exec(cmd, (err, stream) => {
           if (err) return reject(err);
+          track(stream);
           const out = tailCollector();
           stream.on('data', (c) => out.push(c.toString()));
           stream.stderr.on('data', (c) => out.push(c.toString()));
@@ -111,6 +119,9 @@ function friendlySsh(e, host) {
 
 // "This machine": used when the app already runs on the Ubuntu server that holds the target folder.
 function localTarget() {
+  const live = new Set(); // streams in flight
+  const kids = new Set(); // running commands
+  const track = (s) => { live.add(s); s.once('close', () => live.delete(s)); return s; };
   const t = {
     kind: 'local',
     label: 'this server',
@@ -119,15 +130,21 @@ function localTarget() {
       return fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile()).map((d) => ({ name: d.name, size: fs.statSync(path.join(dir, d.name)).size }));
     },
     async size(file) { return fs.statSync(file).size; },
-    readStream: async (file) => fs.createReadStream(file),
-    writeStream: async (file, mode = 0o600) => fs.createWriteStream(file, { mode }),
+    readStream: async (file) => track(fs.createReadStream(file)),
+    writeStream: async (file, mode = 0o600) => track(fs.createWriteStream(file, { mode })),
+    // Used by the Stop button: kills running commands (the whole process group, so mysql dies with its shell) and fails open streams.
+    abort() {
+      for (const k of [...kids]) { try { process.kill(-k.pid, 'SIGTERM'); } catch (e) { try { k.kill('SIGTERM'); } catch (x) { /* gone */ } } }
+      for (const s of [...live]) { try { s.destroy(new Error('Stopped')); } catch (e) { /* gone */ } }
+    },
     async rename(a, b) { fs.renameSync(a, b); },
     async remove(file) { fs.unlinkSync(file); },
     async mkdirp(dir) { fs.mkdirSync(dir, { recursive: true }); },
     async writeSecret(file, content) { fs.writeFileSync(file, content, { mode: 0o600 }); fs.chmodSync(file, 0o600); },
     exec(cmd) {
       return new Promise((resolve, reject) => {
-        const p = spawn('/bin/sh', ['-c', cmd], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const p = spawn('/bin/sh', ['-c', cmd], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+        kids.add(p); p.once('close', () => kids.delete(p));
         const out = tailCollector();
         p.stdout.on('data', (c) => out.push(c.toString()));
         p.stderr.on('data', (c) => out.push(c.toString()));

@@ -46,7 +46,8 @@ function makeLog(onLine) {
 // Errors that mean nothing was imported at all (login, connection, missing database); these still fail the file.
 const FATAL_RESTORE = /ERROR (1044|1045|1049|2002|2003|2005|2013)\b|Access denied|Can't connect|Unknown database/i;
 
-async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, run, onStep = () => {}, position = '' }) {
+async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, run, onStep = () => {}, position = '', isStopped = () => false, leftovers = [] }) {
+  const checkStop = () => { if (isStopped()) throw Object.assign(new Error('Stopped'), { stopped: true }); };
   const files = await source.list(cfg.source.dir);
   const latest = pickLatest(files, item.prefix);
   if (!latest) throw new Error(`No file named ${item.prefix}_<date>_<time>.sql.gz in ${cfg.source.dir}`);
@@ -56,6 +57,7 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
   const dir = cfg.dest.dir;
   const gz = px.join(dir, latest.name);
   const sql = gz.replace(/\.gz$/, '');
+  leftovers.push(gz + '.part', sql + '.part'); // removed if the run is stopped half way
   const T = (step, fn, extra) => timed(tlog, run, latest.name, step, fn, extra);
   const t0 = Date.now();
   // Tells the screen what is happening right now, and writes a "started" line (the "done" line follows the step).
@@ -72,6 +74,7 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
     if (bytes !== latest.size) throw new Error(`Copy incomplete: got ${bytes} of ${latest.size} bytes`);
     await dest.rename(gz + '.part', gz);
   }, `${fmtBytes(latest.size)} (${latest.size} bytes)`);
+  checkStop();
   log.info(`${item.prefix}: copied to ${gz} in ${took(ts)}`);
 
   begin(`checking ${latest.name} (gzip -t)`);
@@ -82,6 +85,7 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
     return x;
   });
 
+  checkStop();
   log.info(`${item.prefix}: check passed in ${took(ts)}`);
 
   begin(`extracting ${latest.name}`);
@@ -90,8 +94,10 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
     r = await dest.exec(`gzip -dc -- ${q(gz)} > ${q(sql + '.part')} && mv -f -- ${q(sql + '.part')} ${q(sql)}`);
     if (r.code !== 0) throw new Error(`Extract failed: ${r.text || 'exit ' + r.code}`);
   });
+  checkStop();
   log.info(`${item.prefix}: extracted to ${sql} in ${took(ts)}`);
 
+  leftovers.restoring = true;
   begin(`restoring ${px.basename(sql)} into database ${item.database}`);
   ts = Date.now();
   await T('restore', async () => {
@@ -100,6 +106,7 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
     // --force keeps importing after an SQL error; the exit code is then non-zero, which is not a failure here.
     if (r.code !== 0 && FATAL_RESTORE.test(r.text || '')) throw new Error(`Restore into ${item.database} failed: ${r.text || 'exit ' + r.code}`);
   }, `database ${item.database}`);
+  checkStop();
   const withErrors = r.code !== 0;
   if (withErrors) {
     const msgs = String(r.text || '').split('\n').map((s) => s.trim()).filter(Boolean);
@@ -111,7 +118,7 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
 }
 
 // Returns { ok, summary, lines }. Each database is handled on its own, so one bad file does not block the other.
-async function runSync({ cfg, source, dest, now = () => new Date(), onLine, onStep, timingLog = { write() {} }, runId = '-' }) {
+async function runSync({ cfg, source, dest, now = () => new Date(), onLine, onStep, isStopped = () => false, timingLog = { write() {} }, runId = '-' }) {
   const log = makeLog(onLine);
   timingLog.write(`run=${runId} | sync started | ${cfg.items.length} database(s)`);
   const failed = [];
@@ -122,11 +129,19 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, onSt
     await dest.mkdirp(cfg.dest.dir);
     await dest.writeSecret(cnfPath, optionFile(cfg.mysql));
     for (const [i, item] of cfg.items.entries()) {
+      if (isStopped()) break;
+      const leftovers = [];
       try {
         const position = cfg.items.length > 1 ? `[${i + 1}/${cfg.items.length}] ` : '';
-        if (await restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog: timingLog, run: runId, onStep, position })) withErrors.push(item.prefix);
+        if (await restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog: timingLog, run: runId, onStep, position, isStopped, leftovers })) withErrors.push(item.prefix);
         done++;
       } catch (e) {
+        if (isStopped()) {
+          log.warn(`${item.prefix}: stopped by an admin`);
+          for (const f of leftovers) await dest.remove(f).catch(() => {}); // half-copied or half-extracted files
+          if (leftovers.restoring) log.warn(`${item.prefix}: the restore was cut off, so ${item.database} is only partly loaded. Run a sync again to overwrite it.`);
+          break;
+        }
         failed.push(item.prefix);
         log.error(`${item.prefix}: ${e.message}`);
       }
@@ -137,6 +152,7 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, onSt
   } finally {
     await dest.remove(cnfPath).catch(() => {});
   }
+  if (isStopped()) { timingLog.write(`run=${runId} | sync stopped | ${done} restored`); return { ok: false, stopped: true, summary: 'Stopped', lines: log.lines }; }
   const ok = failed.length === 0;
   timingLog.write(`run=${runId} | sync finished | ${done} restored, ${failed.length} failed`);
   const note = withErrors.length ? ` Completed with errors in: ${withErrors.join(', ')} (errors ignored, see the log).` : '';

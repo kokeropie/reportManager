@@ -11,24 +11,30 @@ const defaultOpen = (part) => (part.host ? sshTarget(part) : localTarget());
 // Runs the copy-and-restore or the clean-up, one at a time per process, and keeps a history row for each.
 function createRunner({ db, service, now = () => new Date(), open = defaultOpen, log = console, timingLog }) {
   let current = null;
+  const run_stopped = () => !!(current && current.stopped);
 
   async function finish(id, res) {
     await db.query(`UPDATE dbsync_runs SET finished_at=@t, status=@s, summary=@sum, log=@log WHERE id=@id`,
-      { id, t: now(), s: res.ok ? (res.warnings ? 'warning' : 'ok') : 'error', sum: String(res.summary || '').slice(0, 500), log: res.lines.join('\n') });
+      { id, t: now(), s: res.stopped ? 'stopped' : res.ok ? (res.warnings ? 'warning' : 'ok') : 'error', sum: String(res.summary || '').slice(0, 500), log: res.lines.join('\n') });
     const top = await db.one('SELECT MAX(id) AS m FROM dbsync_runs');
     if (top && top.m) await db.query('DELETE FROM dbsync_runs WHERE id <= @cut', { cut: top.m - KEEP_RUNS });
   }
 
   async function execute(id, kind, cfg) {
+    const isStopped = () => !!(current && current.stopped);
     const onStep = (text) => { if (current) { current.step = text; current.stepAt = Date.now(); } };
     const lines = [];
     const onLine = (l) => { lines.push(l); db.query('UPDATE dbsync_runs SET log=@log WHERE id=@id', { id, log: lines.join('\n') }).catch(() => {}); };
     let source = null, dest = null;
     try {
       dest = await open(cfg.dest).open();
+      if (current) current.targets = [dest];
+      if (isStopped()) throw new Error('Stopped');
       if (kind === 'sync') {
         source = await open(cfg.source).open();
-        return await runSync({ cfg, source, dest, now, onLine, onStep, timingLog, runId: id });
+        if (current) current.targets = [dest, source];
+        if (isStopped()) throw new Error('Stopped');
+        return await runSync({ cfg, source, dest, now, onLine, onStep, isStopped, timingLog, runId: id });
       }
       return await runCleanup({ cfg, dest, onLine });
     } catch (e) {
@@ -42,6 +48,14 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
 
   return {
     get busy() { return current; },
+    // Stops the running job: kills the copy / unzip / restore and ends the connections. The run ends as "stopped".
+    stop(by) {
+      if (!current) throw Object.assign(new Error('Nothing is running'), { status: 409 });
+      current.stopped = true;
+      current.stoppedBy = by || 'an admin';
+      for (const t of current.targets || []) { try { if (t.abort) t.abort(); } catch (e) { /* already closed */ } }
+      return { kind: current.kind };
+    },
     // Starts a run and returns { id, done } straight away. Throws 409 if one is already running.
     async start(kind, by) {
       if (current) throw Object.assign(new Error(`A ${current.kind} is already running`), { status: 409 });
@@ -57,13 +71,14 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
         const run = { id: ins.insertId };
         const done = (async () => {
           try {
-            const res = problem ? { ok: false, summary: problem + ' on the DB Sync screen first.', lines: [problem] } : await execute(run.id, kind, cfg);
-            if (!res.ok) log.error(`DB sync ${kind} failed: ${res.summary}`);
+            let res = problem ? { ok: false, summary: problem + ' on the DB Sync screen first.', lines: [problem] } : await execute(run.id, kind, cfg);
+            if (run_stopped()) res = { ok: false, stopped: true, summary: `Stopped by ${current.stoppedBy}`, lines: [...(res.lines || []), `Stopped by ${current.stoppedBy}`] };
+            else if (!res.ok) log.error(`DB sync ${kind} failed: ${res.summary}`);
             await finish(run.id, res);
             return res;
           } catch (e) {
             log.error(`DB sync ${kind} crashed: ${e.message}`);
-            await finish(run.id, { ok: false, summary: e.message, lines: [e.message] }).catch(() => {});
+            await finish(run.id, run_stopped() ? { ok: false, stopped: true, summary: `Stopped by ${current.stoppedBy}`, lines: [`Stopped by ${current.stoppedBy}`] } : { ok: false, summary: e.message, lines: [e.message] }).catch(() => {});
             return { ok: false, summary: e.message };
           } finally { current = null; }
         })();

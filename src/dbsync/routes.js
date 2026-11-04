@@ -22,6 +22,11 @@ function createDbSyncRouter({ service, runner, audit }) {
     res.status(202).json({ id });
   }));
   // progress: what the running job is doing right now (null when idle), with times in ms since the epoch.
+  r.post('/stop', wrap(async (req, res) => {
+    const { kind } = runner.stop(req.session.username);
+    await note(req, 'dbsync-stop-' + kind);
+    res.json({ ok: true });
+  }));
   r.get('/runs', wrap(async (req, res) => {
     const b = runner.busy;
     res.json({ runs: await service.runs(30), running: b ? b.kind : null, progress: b ? { kind: b.kind, step: b.step, startedAt: b.startedAt, stepAt: b.stepAt, now: Date.now() } : null });
