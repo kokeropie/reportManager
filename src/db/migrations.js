@@ -168,6 +168,14 @@ const MIGRATIONS = [
       CONSTRAINT ck_dbsync_kind CHECK (kind IN ('sync','cleanup'))
     )`,
   ],
+  // DB Sync: optional SSH private key (and its passphrase) per machine, stored encrypted like the passwords.
+  [
+    `ALTER TABLE dbsync_config
+      ADD COLUMN IF NOT EXISTS src_key_enc LONGTEXT NULL,
+      ADD COLUMN IF NOT EXISTS src_passphrase_enc VARCHAR(2000) NULL,
+      ADD COLUMN IF NOT EXISTS dst_key_enc LONGTEXT NULL,
+      ADD COLUMN IF NOT EXISTS dst_passphrase_enc VARCHAR(2000) NULL`,
+  ],
 ];
 
 const DEFAULT_FOLDERS = [

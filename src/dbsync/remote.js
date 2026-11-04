@@ -17,7 +17,7 @@ function tailCollector() {
   return { push(c) { buf = (buf + c).slice(-TAIL); }, get text() { return buf.trim(); } };
 }
 
-function sshTarget({ host, port = 22, username, password, hostKey, pinHostKey = false, readyTimeout = 20000 }) {
+function sshTarget({ host, port = 22, username, password, privateKey, passphrase, hostKey, pinHostKey = false, readyTimeout = 20000 }) {
   const conn = new Client();
   let sftp = null;
   let seenKey = null;
@@ -26,9 +26,12 @@ function sshTarget({ host, port = 22, username, password, hostKey, pinHostKey = 
   const connect = () => new Promise((resolve, reject) => {
     conn.once('ready', resolve);
     conn.once('error', (e) => reject(Object.assign(new Error(friendlySsh(e, host)), { cause: e })));
-    conn.on('keyboard-interactive', (name, instr, lang, prompts, finish) => finish(prompts.map(() => password)));
-    conn.connect({
-      host, port, username, password, readyTimeout, tryKeyboard: true, keepaliveInterval: 15000,
+    if (password) conn.on('keyboard-interactive', (name, instr, lang, prompts, finish) => finish(prompts.map(() => password)));
+    const auth = {};
+    if (privateKey) { auth.privateKey = privateKey; if (passphrase) auth.passphrase = passphrase; } // tried first
+    if (password) { auth.password = password; auth.tryKeyboard = true; }
+    try { conn.connect({
+      host, port, username, ...auth, readyTimeout, keepaliveInterval: 15000,
       hostHash: 'sha256',
       // Trust on first use: the key is pinned when an admin presses Test, and every later run must match it.
       hostVerifier: (hash) => {
@@ -37,7 +40,7 @@ function sshTarget({ host, port = 22, username, password, hostKey, pinHostKey = 
         rejected = !(hostKey && hostKey === hash);
         return !rejected;
       },
-    });
+    }); } catch (e) { reject(Object.assign(new Error(friendlySsh(e, host)), { cause: e })); } // a key that cannot be read throws here
   });
 
   const getSftp = () => new Promise((resolve, reject) => {
@@ -97,7 +100,8 @@ function sshTarget({ host, port = 22, username, password, hostKey, pinHostKey = 
 
 function friendlySsh(e, host) {
   const m = String((e && e.message) || e);
-  if (/All configured authentication methods failed/i.test(m)) return `Sign-in to ${host} was refused. Check the user name and password.`;
+  if (/passphrase|Cannot parse privateKey|Encrypted private (OpenSSH )?key|bad decrypt|Malformed OpenSSH|Unsupported key format/i.test(m)) return `The private key for ${host} could not be read: ${/passphrase|encrypted|decrypt/i.test(m) ? 'it is protected by a passphrase that is missing or wrong.' : 'paste the whole private key file (not the .pub file).'}`;
+  if (/All configured authentication methods failed/i.test(m)) return `Sign-in to ${host} was refused. Check the user name, and the password or private key (the server must have the matching public key in ~/.ssh/authorized_keys).`;
   if (/ENOTFOUND|EAI_AGAIN/.test(m) || (e && /ENOTFOUND|EAI_AGAIN/.test(e.code || ''))) return `Cannot find ${host}. Check the address.`;
   if (/ECONNREFUSED/.test(m)) return `${host} refused the connection. Is SSH running and is the port right?`;
   if (/ETIMEDOUT|Timed out|timeout/i.test(m)) return `${host} did not answer in time. Check the address, port and firewall.`;

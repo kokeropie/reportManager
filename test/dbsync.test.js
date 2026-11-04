@@ -248,3 +248,86 @@ test('restore: a login or connection failure still fails that database', async (
     assert.match(res.summary, /Failed: dev_kenji/);
   } finally { w.done(); }
 });
+
+// ---- private-key login ----
+const { utils: sshUtils, Server: SshServer } = require('ssh2');
+const { sshTarget } = require('../src/dbsync/remote');
+
+test('validateConfig: private key must be a whole key file; blank keeps; the .pub line is refused', () => {
+  const key = sshUtils.generateKeyPairSync('ed25519');
+  const b = good(); b.source.privateKey = key.private.replace(/\n/g, '\r\n');
+  const v = validateConfig(b);
+  assert.match(v.source.privateKey, /^-----BEGIN OPENSSH PRIVATE KEY-----\n[\s\S]+-----END OPENSSH PRIVATE KEY-----\n$/);
+  assert.strictEqual(validateConfig(good()).source.privateKey, '');
+  const pub = good(); pub.source.privateKey = key.public;
+  assert.throws(() => validateConfig(pub), /whole key file/);
+});
+
+async function keyServer(authorizedPublic) {
+  const host = sshUtils.generateKeyPairSync('ed25519');
+  const allowed = sshUtils.parseKey(authorizedPublic);
+  const seen = [];
+  const server = new SshServer({ hostKeys: [host.private] }, (client) => {
+    client.on('authentication', (ctx) => {
+      seen.push(ctx.method);
+      if (ctx.method === 'publickey' && ctx.key.algo === allowed.type && Buffer.compare(ctx.key.data, allowed.getPublicSSH()) === 0) {
+        if (!ctx.signature) return ctx.accept();
+        return allowed.verify(ctx.blob, ctx.signature, ctx.hashAlgo) ? ctx.accept() : ctx.reject();
+      }
+      ctx.reject(['publickey']);
+    });
+    client.on('ready', () => {});
+    client.on('error', () => {});
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  return { port: server.address().port, seen, close: () => server.close() };
+}
+
+test('sshTarget signs in with a private key (no password); a wrong key gives a readable message', async () => {
+  const good1 = sshUtils.generateKeyPairSync('ed25519');
+  const other = sshUtils.generateKeyPairSync('ed25519');
+  const srv = await keyServer(good1.public);
+  try {
+    const ok = sshTarget({ host: '127.0.0.1', port: srv.port, username: 'bk', privateKey: good1.private, pinHostKey: true, readyTimeout: 5000 });
+    await ok.open();
+    assert.ok(srv.seen.includes('publickey'));
+    ok.close();
+    const wrong = sshTarget({ host: '127.0.0.1', port: srv.port, username: 'bk', privateKey: other.private, pinHostKey: true, readyTimeout: 5000 });
+    await assert.rejects(() => wrong.open(), /Sign-in to 127\.0\.0\.1 was refused.*private key/);
+    const garbage = sshTarget({ host: '127.0.0.1', port: srv.port, username: 'bk', privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----\n', pinHostKey: true, readyTimeout: 5000 });
+    await assert.rejects(() => garbage.open(), /private key .* could not be read/);
+  } finally { srv.close(); }
+});
+
+test('service.save stores the key encrypted, never returns it, keeps it on blank, removes it on clearKey', async () => {
+  const { createDbSyncService } = require('../src/dbsync/service');
+  const { bindNamed } = require('../src/db');
+  const keyHex = 'ab'.repeat(32);
+  const row = { enabled: 0, src_host: '', src_port: 22, dst_host: '', dst_port: 22, src_hostkey: null, dst_hostkey: null,
+    items: '[]', sync_schedule: '{"type":"daily","time":"02:00"}', cleanup_schedule: '{"type":"daily","time":"18:00"}' };
+  const db = {
+    one: async () => ({ ...row }),
+    query: async (sql, p) => {
+      const { values } = bindNamed(sql, p); // throws if a placeholder has no value
+      assert.ok(values.length > 20);
+      if (/UPDATE dbsync_config SET enabled/.test(sql)) {
+        if (p.skk !== null) row.src_key_enc = p.skk;
+        if (p.skp !== null) row.src_passphrase_enc = p.skp;
+      }
+      return [];
+    },
+  };
+  const svc = createDbSyncService({ db, encryptionKey: keyHex });
+  const k = sshUtils.generateKeyPairSync('ed25519').private;
+  const saved = await svc.save({ ...good(), source: { ...good().source, privateKey: k, passphrase: 'pp' } });
+  assert.strictEqual(saved.source.hasKey, true);
+  assert.ok(!JSON.stringify(saved).includes('PRIVATE KEY'));
+  assert.ok(!row.src_key_enc.includes('PRIVATE KEY'), 'stored encrypted');
+  const secret = await svc.getWithSecret();
+  assert.strictEqual(secret.source.privateKey, k.replace(/\r\n?/g, '\n').trim() + '\n');
+  assert.strictEqual(secret.source.passphrase, 'pp');
+  await svc.save(good());
+  assert.strictEqual((await svc.getWithSecret()).source.privateKey.length > 0, true, 'blank keeps the stored key');
+  await svc.save({ ...good(), source: { ...good().source, clearKey: true } });
+  assert.strictEqual((await svc.get()).source.hasKey, false);
+});

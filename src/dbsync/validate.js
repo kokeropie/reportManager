@@ -33,6 +33,17 @@ function secret(v, label) {
   return s; // blank = keep the stored one
 }
 
+// Pasted private key (OpenSSH or PEM). Blank = keep the stored one. Line endings are normalised; a key is multi-line.
+function privateKey(v, label) {
+  const s = v === undefined || v === null ? '' : String(v).replace(/\r\n?/g, '\n').trim();
+  if (!s) return '';
+  if (s.length > 20000 || /[\u0000-\u0008\u000b-\u001f]/.test(s)) throw bad(`${label} private key has characters that are not allowed`);
+  if (!/^-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----\n[\s\S]+\n-----END [A-Z0-9 ]*PRIVATE KEY-----$/.test(s)) {
+    throw bad(`${label} private key must be the whole key file, from "-----BEGIN ... PRIVATE KEY-----" to "-----END ... PRIVATE KEY-----". Do not paste the .pub file.`);
+  }
+  return s + '\n';
+}
+
 // Prefix is the part of the file name before the date stamp; database is where that file is restored.
 function items(v) {
   if (!Array.isArray(v) || v.length === 0 || v.length > 20) throw bad('Add at least one database to restore');
@@ -60,8 +71,8 @@ function validateConfig(b, { platform = process.platform } = {}) {
   const s = body.source || {}, d = body.dest || {}, m = body.mysql || {};
   const out = {
     enabled: !!body.enabled,
-    source: { host: host(s.host, 'Backup server', true), port: port(s.port, 22), username: user(s.username, 'Backup server'), password: secret(s.password, 'Backup server'), dir: dir(s.dir, 'Backup folder') },
-    dest: { host: host(d.host, 'Ubuntu server', false), port: port(d.port, 22), username: text(d.username, 100), password: secret(d.password, 'Ubuntu server'), dir: dir(d.dir, 'Target folder') },
+    source: { host: host(s.host, 'Backup server', true), port: port(s.port, 22), username: user(s.username, 'Backup server'), password: secret(s.password, 'Backup server'), privateKey: privateKey(s.privateKey, 'Backup server'), passphrase: secret(s.passphrase, 'Backup server key'), clearKey: !!s.clearKey, dir: dir(s.dir, 'Backup folder') },
+    dest: { host: host(d.host, 'Ubuntu server', false), port: port(d.port, 22), username: text(d.username, 100), password: secret(d.password, 'Ubuntu server'), privateKey: privateKey(d.privateKey, 'Ubuntu server'), passphrase: secret(d.passphrase, 'Ubuntu server key'), clearKey: !!d.clearKey, dir: dir(d.dir, 'Target folder') },
     mysql: { host: host(m.host, 'MySQL', true), port: port(m.port, 3306), username: user(m.username, 'MySQL'), password: secret(m.password, 'MySQL') },
     items: items(body.items),
     syncSchedule: schedule(body.syncSchedule, 'Copy and restore schedule'),

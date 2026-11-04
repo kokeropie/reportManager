@@ -24,11 +24,17 @@ function fromRow(r, key, withSecrets) {
   };
   if (withSecrets) {
     cfg.source.password = dec(r.src_password_enc, key);
+    cfg.source.privateKey = dec(r.src_key_enc, key);
+    cfg.source.passphrase = dec(r.src_passphrase_enc, key);
     cfg.dest.password = dec(r.dst_password_enc, key);
+    cfg.dest.privateKey = dec(r.dst_key_enc, key);
+    cfg.dest.passphrase = dec(r.dst_passphrase_enc, key);
     cfg.mysql.password = dec(r.my_password_enc, key);
   } else {
     cfg.source.hasPassword = !!r.src_password_enc;
+    cfg.source.hasKey = !!r.src_key_enc;
     cfg.dest.hasPassword = !!r.dst_password_enc;
+    cfg.dest.hasKey = !!r.dst_key_enc;
     cfg.mysql.hasPassword = !!r.my_password_enc;
     cfg.syncText = cfg.syncSchedule && describe(cfg.syncSchedule);
     cfg.cleanupText = cfg.cleanupSchedule && describe(cfg.cleanupSchedule);
@@ -52,17 +58,20 @@ function createDbSyncService({ db, encryptionKey, now = () => new Date(), open =
       const srcSame = v.source.host === old.src_host && v.source.port === old.src_port;
       const dstSame = v.dest.host === old.dst_host && v.dest.port === old.dst_port;
       const t = now();
+      // blank = keep what is stored; clearKey removes the key and its passphrase together
+      const keyCols = (p) => (p.clearKey ? { key: '', pass: '' } : { key: p.privateKey ? encrypt(p.privateKey, encryptionKey) : null, pass: p.passphrase ? encrypt(p.passphrase, encryptionKey) : null });
+      const sk = keyCols(v.source), dk = keyCols(v.dest);
       await db.query(
         `UPDATE dbsync_config SET enabled=@enabled,
-           src_host=@sh, src_port=@sp, src_user=@su, src_password_enc=COALESCE(@spw, src_password_enc), src_dir=@sd, src_hostkey=@skey,
-           dst_host=@dh, dst_port=@dp, dst_user=@du, dst_password_enc=COALESCE(@dpw, dst_password_enc), dst_dir=@dd, dst_hostkey=@dkey,
+           src_host=@sh, src_port=@sp, src_user=@su, src_password_enc=COALESCE(@spw, src_password_enc), src_key_enc=COALESCE(@skk, src_key_enc), src_passphrase_enc=COALESCE(@skp, src_passphrase_enc), src_dir=@sd, src_hostkey=@skey,
+           dst_host=@dh, dst_port=@dp, dst_user=@du, dst_password_enc=COALESCE(@dpw, dst_password_enc), dst_key_enc=COALESCE(@dkk, dst_key_enc), dst_passphrase_enc=COALESCE(@dkp, dst_passphrase_enc), dst_dir=@dd, dst_hostkey=@dkey,
            my_host=@mh, my_port=@mp, my_user=@mu, my_password_enc=COALESCE(@mpw, my_password_enc),
            items=@items, sync_schedule=@ss, cleanup_schedule=@cs, next_sync_at=@ns, next_cleanup_at=@nc, updated_at=UTC_TIMESTAMP(3)
          WHERE id = 1`,
         {
           enabled: v.enabled,
-          sh: v.source.host, sp: v.source.port, su: v.source.username, spw: v.source.password ? encrypt(v.source.password, encryptionKey) : null, sd: v.source.dir, skey: srcSame ? old.src_hostkey : null,
-          dh: v.dest.host, dp: v.dest.port, du: v.dest.username, dpw: v.dest.password ? encrypt(v.dest.password, encryptionKey) : null, dd: v.dest.dir, dkey: dstSame ? old.dst_hostkey : null,
+          sh: v.source.host, sp: v.source.port, su: v.source.username, spw: v.source.password ? encrypt(v.source.password, encryptionKey) : null, skk: sk.key, skp: sk.pass, sd: v.source.dir, skey: srcSame ? old.src_hostkey : null,
+          dh: v.dest.host, dp: v.dest.port, du: v.dest.username, dpw: v.dest.password ? encrypt(v.dest.password, encryptionKey) : null, dkk: dk.key, dkp: dk.pass, dd: v.dest.dir, dkey: dstSame ? old.dst_hostkey : null,
           mh: v.mysql.host, mp: v.mysql.port, mu: v.mysql.username, mpw: v.mysql.password ? encrypt(v.mysql.password, encryptionKey) : null,
           items: JSON.stringify(v.items), ss: JSON.stringify(v.syncSchedule), cs: JSON.stringify(v.cleanupSchedule),
           ns: v.enabled ? nextRun(v.syncSchedule, t) : null, nc: v.enabled ? nextRun(v.cleanupSchedule, t) : null,

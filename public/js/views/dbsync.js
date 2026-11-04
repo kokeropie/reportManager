@@ -13,6 +13,9 @@ export async function renderDbSync() {
 
   const field = (label, name, attrs = {}) => h('label', {}, label, h('input', { name, ...attrs }));
   const pw = (has) => ({ type: 'password', autocomplete: 'new-password', placeholder: has ? 'blank keeps the saved password' : '' });
+  const keyBox = (name, has) => h('label', { style: 'grid-column:1/-1' }, 'Private key (optional, instead of or with a password)',
+    h('textarea', { name, rows: 4, spellcheck: 'false', autocomplete: 'off', style: 'font-family:monospace', placeholder: has ? 'A key is saved. Leave blank to keep it, or paste a new one.' : '-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----' }));
+  const clearKey = (name, has) => (has ? h('label', { class: 'check' }, h('input', { type: 'checkbox', name }), ' Remove the saved key') : '');
   const testBtn = (which) => h('button', { type: 'button', onclick: async (e) => {
     e.target.disabled = true; say(box, 'Testing...', true);
     try { const r = await api('POST', '/db-sync/test/' + which); say(box, r.message, r.ok); } catch (err) { say(box, err.message); }
@@ -35,8 +38,8 @@ export async function renderDbSync() {
     const g = (k) => f.get(k);
     const body = {
       enabled: g('enabled') === 'on',
-      source: { host: g('sHost'), port: g('sPort'), username: g('sUser'), password: g('sPass'), dir: g('sDir') },
-      dest: { host: g('dHost'), port: g('dPort'), username: g('dUser'), password: g('dPass'), dir: g('dDir') },
+      source: { host: g('sHost'), port: g('sPort'), username: g('sUser'), password: g('sPass'), privateKey: g('sKey'), passphrase: g('sPhrase'), clearKey: g('sClear') === 'on', dir: g('sDir') },
+      dest: { host: g('dHost'), port: g('dPort'), username: g('dUser'), password: g('dPass'), privateKey: g('dKey'), passphrase: g('dPhrase'), clearKey: g('dClear') === 'on', dir: g('dDir') },
       mysql: { host: g('mHost'), port: g('mPort'), username: g('mUser'), password: g('mPass') },
       items: [...rows.children].map((r) => ({ prefix: r.querySelector('[data-k=prefix]').value, database: r.querySelector('[data-k=database]').value })),
       syncSchedule: { type: 'daily', time: g('syncTime') },
@@ -50,6 +53,9 @@ export async function renderDbSync() {
     field('SSH port', 'sPort', { type: 'number', min: 1, max: 65535, value: c.source.port }),
     field('User', 'sUser', { required: true, autocomplete: 'off', value: c.source.username }),
     field('Password', 'sPass', pw(c.source.hasPassword)),
+    keyBox('sKey', c.source.hasKey),
+    field('Key passphrase (only if the key has one)', 'sPhrase', { type: 'password', autocomplete: 'new-password' }),
+    clearKey('sClear', c.source.hasKey),
     field('Folder', 'sDir', { required: true, value: c.source.dir }),
     h('div', { class: 'row' }, testBtn('source'), c.source.hostKey ? h('span', { class: 'muted' }, 'Host key trusted') : h('span', { class: 'muted' }, 'Host key not trusted yet: press Test')),
 
@@ -61,6 +67,9 @@ export async function renderDbSync() {
     field('SSH port', 'dPort', { type: 'number', min: 1, max: 65535, value: c.dest.port }),
     field('User', 'dUser', { autocomplete: 'off', value: c.dest.username }),
     field('Password', 'dPass', pw(c.dest.hasPassword)),
+    keyBox('dKey', c.dest.hasKey),
+    field('Key passphrase (only if the key has one)', 'dPhrase', { type: 'password', autocomplete: 'new-password' }),
+    clearKey('dClear', c.dest.hasKey),
     field('Target folder (created if missing)', 'dDir', { required: true, value: c.dest.dir }),
     h('div', { class: 'row' }, testBtn('dest'), c.dest.host ? (c.dest.hostKey ? h('span', { class: 'muted' }, 'Host key trusted') : h('span', { class: 'muted' }, 'Host key not trusted yet: press Test')) : ''),
 
@@ -99,7 +108,7 @@ export async function renderDbSync() {
 
   view.append(
     h('div', { class: 'card' }, h('h2', {}, 'DB Sync'),
-      h('p', { class: 'muted' }, 'Copies the newest backup files from the backup server to the Ubuntu server, extracts them, restores them into MySQL, and deletes the files again later in the day. Passwords are stored encrypted.'),
+      h('p', { class: 'muted' }, 'Copies the newest backup files from the backup server to the Ubuntu server, extracts them, restores them into MySQL, and deletes the files again later in the day. Passwords and private keys are stored encrypted.'),
       c.enabled ? h('p', {}, `Next copy: ${when(c.nextSyncAt)}. Next cleanup: ${when(c.nextCleanupAt)}.`) : h('p', { class: 'badge warn' }, 'Not running on schedule'),
       form, box,
       h('div', { class: 'row' }, start('sync', 'Run copy + restore now'), start('cleanup', 'Delete files now'), running ? h('span', { class: 'muted' }, `A ${running} is running...`) : '')),
