@@ -77,6 +77,7 @@ function workspace() {
   for (const d of [src, bin, out]) fs.mkdirSync(d);
   fs.writeFileSync(path.join(bin, 'mysql'), `#!/bin/sh
 for a in "$@"; do case "$a" in --database=*) db="\${a#--database=}";; --defaults-extra-file=*) cnf="\${a#*=}";; esac; done
+if [ -z "$db" ]; then echo "$@" >> "${out}/admin.args"; exit 0; fi
 cat > "${out}/$db.sql"
 echo "$@" > "${out}/$db.args"
 if [ -f "${out}/FAIL_$db" ]; then cat "${out}/FAIL_$db" >&2; exit 1; fi
@@ -234,6 +235,8 @@ test('restore: SQL errors during import are ignored (--force); the run completes
     assert.match(res.summary, /Completed with errors in: dev_arjuna/);
     assert.match(res.lines.join('\n'), /2 error message\(s\), ignored/);
     assert.match(fs.readFileSync(path.join(w.out, 'dev_arjuna.args'), 'utf8'), /--force/);
+    assert.match(fs.readFileSync(path.join(w.out, 'dev_arjuna.args'), 'utf8'), /--max-allowed-packet=1073741824/);
+    assert.match(fs.readFileSync(path.join(w.out, 'admin.args'), 'utf8'), /SET GLOBAL max_allowed_packet = 1073741824/);
     assert.strictEqual(fs.readFileSync(path.join(w.out, 'dev_kenji.sql'), 'utf8'), 'K', 'the other database is still restored');
   } finally { w.done(); }
 });

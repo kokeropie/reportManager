@@ -101,7 +101,11 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
   begin(`restoring ${px.basename(sql)} into database ${item.database}`);
   ts = Date.now();
   await T('restore', async () => {
-    r = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} --default-character-set=utf8mb4 --force --database=${q(item.database)} < ${q(sql)}`);
+    // Big dumps (dev_arjuna) stop part-way on "packet too large" with the default 16MB-ish limit. Raise the server's
+    // global limit (needs SUPER; a failure is only a warning) and the client's own limit for the import connection.
+    const g = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} -e ${q('SET GLOBAL max_allowed_packet = 1073741824')} < /dev/null`);
+    if (g.code !== 0) log.warn(`${item.prefix}: could not SET GLOBAL max_allowed_packet (${String(g.text || 'exit ' + g.code).trim().slice(0, 200)}); large rows may fail`);
+    r = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} --default-character-set=utf8mb4 --max-allowed-packet=1073741824 --init-command=${q('SET SESSION max_allowed_packet = 1073741824')} --force --database=${q(item.database)} < ${q(sql)}`);
     if (r.code === 127) throw new Error(`The mysql client is not installed on ${dest.label}. On Ubuntu: sudo apt install mysql-client`);
     // --force keeps importing after an SQL error; the exit code is then non-zero, which is not a failure here.
     if (r.code !== 0 && FATAL_RESTORE.test(r.text || '')) throw new Error(`Restore into ${item.database} failed: ${r.text || 'exit ' + r.code}`);
