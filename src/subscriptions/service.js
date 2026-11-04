@@ -11,7 +11,7 @@ function cleanFolder(input) {
   const raw = String(input === undefined || input === null ? '' : input).trim();
   if (!raw) return '';
   const parts = raw.split(/[\\/]+/).filter((p) => p !== '');
-  if (parts.length > 5) throw bad('The folder can be at most 5 levels deep');
+  if (parts.length > 10) throw bad('The folder can be at most 10 levels deep');
   const out = parts.map((p) => {
     const seg = p.trim();
     if (!seg || /^\.+$/.test(seg) || /[<>:"|?*\u0000-\u001f]/.test(seg) || /[. ]$/.test(seg) || seg.length > 60 || /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(seg)) {
