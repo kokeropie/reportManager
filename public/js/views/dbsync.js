@@ -95,6 +95,25 @@ export async function renderDbSync() {
     try { await api('POST', '/db-sync/run/' + kind); view.replaceChildren(); await renderDbSync(); } catch (err) { say(box, err.message); }
   } }, label);
 
+  const latestBox = h('div', { class: 'card', style: 'display:none' });
+  const stampDate = (s) => (s ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)} ${s.slice(8, 10)}:${s.slice(10, 12)}:${s.slice(12, 14)}` : '-');
+  const checkLatest = h('button', { type: 'button', onclick: async (e) => {
+    e.target.disabled = true; say(box, 'Checking the servers...', true);
+    try {
+      const { files } = await api('GET', '/db-sync/latest');
+      box.textContent = ''; box.className = 'msg';
+      latestBox.style.display = '';
+      latestBox.replaceChildren(h('h3', {}, 'Latest backup files'),
+        h('p', { class: 'muted' }, 'Date in file name = the stamp in the name (when the backup was made). File time = the modified time the server reports for the file (Linux does not keep a reliable creation time); for a copied file this is when the copy finished.'),
+        h('table', {}, h('thead', {}, h('tr', {}, ['Server', 'Database', 'File name', 'Size', 'Date in file name', 'File time'].map((t) => h('th', {}, t)))),
+          h('tbody', {}, files.map((f) => f.error
+            ? h('tr', {}, h('td', {}, f.where), h('td', { colspan: 5 }, 'Could not check: ' + f.error))
+            : f.found ? h('tr', {}, h('td', {}, f.where), h('td', {}, f.prefix), h('td', {}, f.name), h('td', {}, `${(f.size / 1048576).toFixed(0)} MB`), h('td', {}, stampDate(f.stamp)), h('td', {}, when(f.fileTime)))
+              : h('tr', {}, h('td', {}, f.where), h('td', {}, f.prefix), h('td', { colspan: 4 }, 'No matching file in ' + f.dir))))));
+    } catch (err) { say(box, err.message); }
+    e.target.disabled = false;
+  } }, 'Check latest backup files');
+
   const dur = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`; };
   const live = h('div', { class: 'card', style: 'display:none' });
   async function drawHistory() {
@@ -125,7 +144,7 @@ export async function renderDbSync() {
       h('p', { class: 'muted' }, 'Copies the newest backup files from the backup server to the Ubuntu server, extracts them, restores them into MySQL, and deletes the files again later in the day. Passwords and private keys are stored encrypted.'),
       c.enabled ? h('p', {}, `Next copy: ${when(c.nextSyncAt)}. Next cleanup: ${when(c.nextCleanupAt)}.`) : h('p', { class: 'badge warn' }, 'Not running on schedule'),
       form, box,
-      h('div', { class: 'row' }, start('sync', 'Run copy + restore now'), start('cleanup', 'Delete files now'), running ? h('span', { class: 'muted' }, `A ${running} is running...`) : '')),
-    live, history);
+      h('div', { class: 'row' }, start('sync', 'Run copy + restore now'), start('cleanup', 'Delete files now'), checkLatest, running ? h('span', { class: 'muted' }, `A ${running} is running...`) : '')),
+    latestBox, live, history);
   await drawHistory();
 }

@@ -1,7 +1,7 @@
 'use strict';
 const { nextRun } = require('../subscriptions/schedule');
 const { sshTarget, localTarget } = require('./remote');
-const { runSync, runCleanup } = require('./sync');
+const { runSync, runCleanup, pickLatest } = require('./sync');
 
 const KEEP_RUNS = 200;
 const TICK_MS = 30 * 1000;
@@ -48,6 +48,26 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
 
   return {
     get busy() { return current; },
+    // Read-only look at the newest backup file per database on the backup server and on the Ubuntu server.
+    // Does not touch a running job. "File time" is the modified time reported by the server.
+    async latest() {
+      const cfg = await service.getWithSecret();
+      const out = [];
+      for (const [where, part] of [['Ubuntu server', cfg.dest], ['Backup server', cfg.source]]) {
+        const label = part.host ? `${where} (${part.host})` : `${where} (this machine)`;
+        let target = null;
+        try {
+          target = await open(part).open();
+          const files = await target.list(part.dir);
+          for (const item of cfg.items) {
+            const f = pickLatest(files, item.prefix);
+            const full = files.find((x) => f && x.name === f.name);
+            out.push({ where: label, dir: part.dir, prefix: item.prefix, found: !!f, name: f ? f.name : null, size: f ? f.size : null, stamp: f ? f.stamp : null, fileTime: full && full.mtime ? new Date(full.mtime).toISOString() : null });
+          }
+        } catch (e) { out.push({ where: label, dir: part.dir, error: e.message }); } finally { if (target) target.close(); }
+      }
+      return out;
+    },
     // Stops the running job: kills the copy / unzip / restore and ends the connections. The run ends as "stopped".
     stop(by) {
       if (!current) throw Object.assign(new Error('Nothing is running'), { status: 409 });

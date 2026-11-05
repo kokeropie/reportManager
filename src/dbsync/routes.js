@@ -11,6 +11,7 @@ function createDbSyncRouter({ service, runner, audit }) {
 
   r.get('/', wrap(async (req, res) => res.json({ config: await service.get(), running: runner.busy ? runner.busy.kind : null, platform: process.platform })));
   r.put('/', wrap(async (req, res) => { const c = await service.save(req.body); await note(req, 'dbsync-settings'); res.json(c); }));
+  r.get('/latest', wrap(async (req, res) => res.json({ files: await runner.latest() })));
   r.post('/test/:which', wrap(async (req, res) => {
     if (!['source', 'dest', 'mysql'].includes(req.params.which)) return res.status(404).json({ error: 'Not found' });
     res.json(await service.test(req.params.which));

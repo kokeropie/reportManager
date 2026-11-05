@@ -382,3 +382,18 @@ test('Stop: kills a running restore, ends the run as stopped, skips the next dat
     assert.throws(() => runner.stop('x'), /Nothing is running/);
   } finally { w.done(); }
 });
+
+test('latest(): newest file per database with name, stamp and file time, on both servers', async () => {
+  const w = workspace();
+  try {
+    w.gz('dev_arjuna_20261102_000000.sql.gz', 'old'); w.gz('dev_arjuna_20261103_000000.sql.gz', 'A'); w.gz('dev_kenji_20261103_000000.sql.gz', 'K');
+    const service = { getWithSecret: async () => w.cfg };
+    const runner = createRunner({ db: fakeDb(null), service, open: () => localTarget(), log: quiet });
+    const files = await runner.latest();
+    const a = files.find((f) => f.prefix === 'dev_arjuna' && /Backup/.test(f.where));
+    assert.strictEqual(a.name, 'dev_arjuna_20261103_000000.sql.gz');
+    assert.strictEqual(a.stamp, '20261103000000');
+    assert.ok(!Number.isNaN(Date.parse(a.fileTime)));
+    assert.ok(files.find((f) => /Ubuntu/.test(f.where)).error, 'the Ubuntu folder does not exist yet, which is reported, not thrown');
+  } finally { w.done(); }
+});

@@ -71,7 +71,7 @@ function sshTarget({ host, port = 22, username, password, privateKey, passphrase
     get fingerprint() { return seenKey; },
     async list(dir) {
       const rows = await call('readdir', dir);
-      return rows.filter((r) => r.attrs.isFile()).map((r) => ({ name: r.filename, size: r.attrs.size }));
+      return rows.filter((r) => r.attrs.isFile()).map((r) => ({ name: r.filename, size: r.attrs.size, mtime: r.attrs.mtime * 1000 }));
     },
     async size(file) { return (await call('stat', file)).size; },
     readStream: async (file) => track((await getSftp()).createReadStream(file)),
@@ -127,7 +127,7 @@ function localTarget() {
     label: 'this server',
     async open() { return t; },
     async list(dir) {
-      return fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile()).map((d) => ({ name: d.name, size: fs.statSync(path.join(dir, d.name)).size }));
+      return fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile()).map((d) => { const st = fs.statSync(path.join(dir, d.name)); return { name: d.name, size: st.size, mtime: st.mtimeMs }; });
     },
     async size(file) { return fs.statSync(file).size; },
     readStream: async (file) => track(fs.createReadStream(file)),
