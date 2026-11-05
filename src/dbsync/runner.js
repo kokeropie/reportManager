@@ -15,7 +15,7 @@ function createRunner({ db, service, now = () => new Date(), open = defaultOpen,
 
   async function finish(id, res) {
     await db.query(`UPDATE dbsync_runs SET finished_at=@t, status=@s, summary=@sum, log=@log WHERE id=@id`,
-      { id, t: now(), s: res.stopped ? 'stopped' : res.ok ? (res.warnings ? 'warning' : 'ok') : 'error', sum: String(res.summary || '').slice(0, 500), log: res.lines.join('\n') });
+      { id, t: now(), s: res.stopped ? 'stopped' : res.ok ? (res.warnings ? 'warning' : 'ok') : 'error', sum: String(res.summary || '').slice(0, 1500), log: res.lines.join('\n') });
     const top = await db.one('SELECT MAX(id) AS m FROM dbsync_runs');
     if (top && top.m) await db.query('DELETE FROM dbsync_runs WHERE id <= @cut', { cut: top.m - KEEP_RUNS });
   }

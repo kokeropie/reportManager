@@ -133,7 +133,7 @@ export async function renderDbSync() {
     history.replaceChildren(h('h3', {}, 'History'),
       runs.length ? h('table', {}, h('thead', {}, h('tr', {}, ['Started', 'Job', 'By', 'Result', ''].map((t) => h('th', {}, t)))),
         h('tbody', {}, runs.map((r) => h('tr', {}, h('td', {}, when(r.startedAt)), h('td', {}, r.kind === 'sync' ? 'Copy + restore' : 'Cleanup'), h('td', {}, r.by),
-          h('td', {}, r.status === 'running' ? 'Running (see the box above)' : r.status === 'ok' ? 'OK: ' + (r.summary || '') : r.status === 'warning' ? 'Done with errors: ' + (r.summary || '') : r.status === 'stopped' ? (r.summary || 'Stopped') : 'Failed: ' + (r.summary || '')),
+          h('td', { style: 'white-space:pre-line' }, r.status === 'running' ? 'Running (see the box above)' : r.status === 'ok' ? 'OK: ' + (r.summary || '') : r.status === 'warning' ? 'Done with errors: ' + (r.summary || '') : r.status === 'stopped' ? (r.summary || 'Stopped') : 'Failed: ' + (r.summary || '')),
           h('td', {}, r.log ? h('details', {}, h('summary', {}, 'Log'), h('pre', {}, r.log)) : ''))))) : h('p', { class: 'muted' }, 'Nothing has run yet.'));
     if (now && location.hash === '#/db-sync') poll = setTimeout(drawHistory, 3000);
     else if (running && !now && location.hash === '#/db-sync') { view.replaceChildren(); renderDbSync(); }

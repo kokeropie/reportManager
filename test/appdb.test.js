@@ -26,7 +26,7 @@ test('migrations are MariaDB DDL: no T-SQL left, every statement re-runnable', (
     assert.ok(Array.isArray(m));
     for (const st of m) {
       assert.doesNotMatch(st, /NVARCHAR|IDENTITY|SYSUTCDATETIME|DATETIME2|\bBIT\b/i);
-      assert.match(st, /^(CREATE TABLE IF NOT EXISTS|INSERT IGNORE|ALTER TABLE \w+\s+ADD COLUMN IF NOT EXISTS)/);
+      assert.match(st, /^(CREATE TABLE IF NOT EXISTS|INSERT IGNORE|ALTER TABLE \w+\s+(ADD COLUMN IF NOT EXISTS|MODIFY COLUMN))/);
     }
   }
 });

@@ -176,6 +176,10 @@ const MIGRATIONS = [
       ADD COLUMN IF NOT EXISTS dst_key_enc LONGTEXT NULL,
       ADD COLUMN IF NOT EXISTS dst_passphrase_enc VARCHAR(2000) NULL`,
   ],
+  // DB Sync result panel now carries one line per database.
+  [
+    `ALTER TABLE dbsync_runs MODIFY COLUMN summary VARCHAR(1500) NULL`,
+  ],
 ];
 
 const DEFAULT_FOLDERS = [

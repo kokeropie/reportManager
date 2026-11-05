@@ -9,6 +9,7 @@ const { timed, fmtBytes, fmtMs } = require('./timingLog');
 const px = path.posix;
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const p2 = (n) => String(n).padStart(2, '0');
+const dateOf = (s) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
 const ymd = (d) => `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}`;
 
 // Newest "<prefix>_<YYYYMMDD>_<HHMMSS>.sql.gz" by the stamp in the name (not by file time, which a copy can change).
@@ -126,7 +127,7 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
   }
   log.info(`${item.prefix}: restored into database ${item.database}${withErrors ? ' (with errors)' : ''} in ${took(ts)}`);
   tlog.write(`run=${run} | ${latest.name} | TOTAL | ${withErrors ? 'OK (errors ignored)' : 'OK'} | ${Math.round((Date.now() - t0) / 100) / 10}s`);
-  return withErrors;
+  return { withErrors, name: latest.name, date: latest.date, ms: Date.now() - t0 };
 }
 
 // Returns { ok, summary, lines }. Each database is handled on its own, so one bad file does not block the other.
@@ -135,6 +136,8 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, onSt
   timingLog.write(`run=${runId} | sync started | ${cfg.items.length} database(s)`);
   const failed = [];
   const withErrors = [];
+  const results = [];
+  const runStart = Date.now();
   let done = 0;
   const cnfPath = px.join(cfg.dest.dir, `.dbsync-${process.pid}-${Date.now()}.cnf`);
   try {
@@ -145,7 +148,9 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, onSt
       const leftovers = [];
       try {
         const position = cfg.items.length > 1 ? `[${i + 1}/${cfg.items.length}] ` : '';
-        if (await restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog: timingLog, run: runId, onStep, position, isStopped, leftovers })) withErrors.push(item.prefix);
+        const res = await restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog: timingLog, run: runId, onStep, position, isStopped, leftovers });
+        if (res.withErrors) withErrors.push(item.prefix);
+        results.push(`${item.prefix}: backup of ${dateOf(res.date)} (${res.name}), copy + restore took ${fmtMs(res.ms)}${res.withErrors ? ', SQL errors ignored' : ', no errors'}`);
         done++;
       } catch (e) {
         if (isStopped()) {
@@ -155,6 +160,7 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, onSt
           break;
         }
         failed.push(item.prefix);
+        results.push(`${item.prefix}: FAILED - ${String(e.message).slice(0, 120)}`);
         log.error(`${item.prefix}: ${e.message}`);
       }
     }
@@ -168,10 +174,8 @@ async function runSync({ cfg, source, dest, now = () => new Date(), onLine, onSt
   const ok = failed.length === 0;
   timingLog.write(`run=${runId} | sync finished | ${done} restored, ${failed.length} failed`);
   const note = withErrors.length ? ` Completed with errors in: ${withErrors.join(', ')} (errors ignored, see the log).` : '';
-  return {
-    ok, warnings: withErrors.length > 0, lines: log.lines,
-    summary: ok ? `Restored ${done} database(s).${note}`.trim() : `Failed: ${failed.join(', ')} (${done} restored).${note}`.trim(),
-  };
+  const head = ok ? `Restored ${done} database(s) in ${fmtMs(Date.now() - runStart)}.${note}` : `Failed: ${failed.join(', ')} (${done} restored, total ${fmtMs(Date.now() - runStart)}).${note}`;
+  return { ok, warnings: withErrors.length > 0, lines: log.lines, summary: [head.trim(), ...results].join('\n') };
 }
 
 // Deletes this module's own files from the target folder; anything else in the folder is left alone.
