@@ -38,7 +38,7 @@ function optionFile(my) {
 
 function makeLog(onLine) {
   const lines = [];
-  const t = () => { const d = new Date(); return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; };
+  const t = () => { const d = new Date(); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; };
   const add = (level, msg) => { const line = `${t()} ${level} ${msg}`; lines.push(line); if (onLine) onLine(line); };
   return { lines, info: (m) => add('', m), warn: (m) => add('WARN', m), error: (m) => add('ERROR', m) };
 }
@@ -101,11 +101,19 @@ async function restoreOne({ source, dest, cfg, item, log, now, cnfPath, tlog, ru
   begin(`restoring ${px.basename(sql)} into database ${item.database}`);
   ts = Date.now();
   await T('restore', async () => {
-    // Big dumps (dev_arjuna) stop part-way on "packet too large" with the default 16MB-ish limit. Raise the server's
-    // global limit (needs SUPER; a failure is only a warning) and the client's own limit for the import connection.
-    const g = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} -e ${q('SET GLOBAL max_allowed_packet = 1073741824')} < /dev/null`);
-    if (g.code !== 0) log.warn(`${item.prefix}: could not SET GLOBAL max_allowed_packet (${String(g.text || 'exit ' + g.code).trim().slice(0, 200)}); large rows may fail`);
-    r = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} --default-character-set=utf8mb4 --max-allowed-packet=1073741824 --init-command=${q('SET SESSION max_allowed_packet = 1073741824')} --force --database=${q(item.database)} < ${q(sql)}`);
+    // Big dumps (dev_arjuna) stop on "packet too large" when the SERVER's max_allowed_packet is small. In MariaDB that
+    // variable is global-only (SET SESSION fails and made the client quit at once), so: the client limit goes on the
+    // command line, and the server limit is only checked. The permanent fix is in the server's config file.
+    const MIN_PACKET = 256 * 1024 * 1024;
+    const cur = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} -N -B -e ${q('SELECT @@global.max_allowed_packet')} < /dev/null`);
+    const have = parseInt(String(cur.text || '').trim().split(/\s+/).pop(), 10);
+    if (!(have >= MIN_PACKET)) {
+      const g = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} -e ${q('SET GLOBAL max_allowed_packet = 1073741824')} < /dev/null`);
+      if (g.code !== 0) {
+        log.warn(`${item.prefix}: server max_allowed_packet is ${have >= 0 ? fmtBytes(have) : 'unknown'} and cannot be raised from here. Large rows may fail. Permanent fix on the database server: add "max_allowed_packet=1G" under [mysqld] in /etc/mysql/mariadb.conf.d/50-server.cnf, then run "sudo systemctl restart mariadb".`);
+      }
+    }
+    r = await dest.exec(`mysql --defaults-extra-file=${q(cnfPath)} --default-character-set=utf8mb4 --max-allowed-packet=1073741824 --force --database=${q(item.database)} < ${q(sql)}`);
     if (r.code === 127) throw new Error(`The mysql client is not installed on ${dest.label}. On Ubuntu: sudo apt install mysql-client`);
     // --force keeps importing after an SQL error; the exit code is then non-zero, which is not a failure here.
     if (r.code !== 0 && FATAL_RESTORE.test(r.text || '')) throw new Error(`Restore into ${item.database} failed: ${r.text || 'exit ' + r.code}`);

@@ -114,6 +114,7 @@ function createDbSyncScheduler({ db, runner, now = () => new Date(), log = conso
       for (const kind of ['sync', 'cleanup']) {
         if (runner.busy || !(await claim(kind, cfgRow, t))) continue;
         n++;
+        log.log(`DB sync scheduler: starting scheduled ${kind} at ${t.toISOString()}`);
         await (await runner.start(kind, 'schedule')).done;
       }
     } catch (e) { log.error('DB sync scheduler tick failed:', e.message); } finally { ticking = false; }
@@ -126,6 +127,7 @@ function createDbSyncScheduler({ db, runner, now = () => new Date(), log = conso
       if (timer) return;
       // A run that was cut off by a restart would stay "running" forever.
       await db.query(`UPDATE dbsync_runs SET status='error', finished_at=@t, summary='Interrupted by a restart' WHERE status='running'`, { t: now() }).catch(() => {});
+      log.log('DB sync scheduler: started, checking every 30s');
       timer = setInterval(tick, TICK_MS);
       timer.unref();
     },
