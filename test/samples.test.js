@@ -14,7 +14,7 @@ const DIR = path.join(__dirname, '..', 'sampleReport');
 const files = fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((f) => f.endsWith('.rdl')) : [];
 const load = (f) => parseRdl(fs.readFileSync(path.join(DIR, f), 'utf8'));
 
-T('sample folder has the 20 RDL files', () => assert.strictEqual(files.length, 20));
+T('sample folder has the 22 RDL files', () => assert.strictEqual(files.length, 22));
 
 for (const f of files) {
   test(`parses cleanly: ${f}`, () => {
