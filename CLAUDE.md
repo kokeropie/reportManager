@@ -9,7 +9,7 @@ All three phases are implemented: auth, users, connections, folders, RDL parser 
 Commands: `npm install`, `npm start` (needs `.env`, see `.env.example` and `README.md`), `npm test` (all), `node --test test/crypto.test.js` (one file). Tests use fake services and need no database. There is no lint setup. The code is run on local Node 24 and `engines` requires Node 20+.
 
 - `raw/PRD-Report-Server.md` is the source of truth (FR-/AC- numbered requirements). Read it before building anything. Its section 8 gives the intended stack, folder layout, API table and run flow.
-- `sampleReport/` (git-ignored, never pushed: it holds real company SQL) has 19 real SSRS `.rdl` files, plus one `.rdl.data` binary cache file that must be rejected on upload (FR-35). These are the parser's test fixtures (AC-1b).
+- `sampleReport/` (git-ignored, never pushed: it holds real company SQL) has 22 real SSRS `.rdl` files, plus one `.rdl.data` binary cache file that must be rejected on upload (FR-35). These are the parser's test fixtures (AC-1b).
 - All acceptance criteria and tests use the files in `sampleReport/`. There is no separate Danamon file. Use `Invoice List - PJTI (autoDate).rdl` for the simple case and `Corporate Billing_All v2.rdl` for UDF calls and expressions.
 
 ## What is being built
@@ -41,7 +41,7 @@ Stack: Node.js 20 or newer (24 LTS recommended; the target is now Ubuntu, so the
 These decisions span several modules and are easy to break:
 
 - **Everything is driven by the RDL.** Parameter names, count and types are never hard-coded (FR-16a). The form, validation and query binding are generated from `ReportParameters` and `QueryParameters`, matched case-insensitively.
-- **The parser must handle both RDL schemas.** `<Tablix>` (2008+) is used by 18 of the 19 samples, and `<Table>` (2005) by the "Bank Transaction List … - Backup" sample (FR-29).
+- **The parser must handle both RDL schemas.** `<Tablix>` (2008+) is used by 21 of the 22 samples, and `<Table>` (2005) by the "Bank Transaction List … - Backup" sample (FR-29).
 - **Parameter binding differs per engine.**
   - MSSQL uses named `@param`.
   - MySQL reports use unnamed `<QueryParameter Name="?">` placeholders, bound by position in the RDL's declared order (FR-31).
