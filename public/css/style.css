@@ -31,6 +31,7 @@ a { color: var(--accent); }
 nav a.btn { text-decoration: none; }
 nav a.btn.active { border-color: var(--accent); color: var(--accent); }
 .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; border:1px solid var(--line); }
+.badge.running { color:var(--accent,#0a7); border-color:var(--accent,#0a7); }
 .badge.warn { color:var(--danger); border-color:var(--danger); }
 .warnbox { margin:8px 0; padding:8px 12px; border:1px solid var(--line); border-left:3px solid var(--danger); border-radius:6px; }
 .warnbox ul { margin:6px 0 0; padding-left:18px; }

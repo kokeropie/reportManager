@@ -75,7 +75,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   });
 
   const scheduler = createScheduler({ db, runs, audit, outputDir: config.outputDir, retentionDays: config.outputRetentionDays, keepFiles: config.subscriptionKeepFiles });
-  const subs = createSubscriptionService({ db, reports, outputDir: config.outputDir, onChange: () => scheduler.wake() });
+  const subs = createSubscriptionService({ db, reports, outputDir: config.outputDir, onChange: () => scheduler.wake(), runningSince: scheduler.runningSince });
 
   const dbsync = createDbSyncService({ db, encryptionKey: config.encryptionKey });
   const dbsyncRunner = createRunner({ db, service: dbsync, timingLog: createTimingLog({ dir: config.logDir }) });

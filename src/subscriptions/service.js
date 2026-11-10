@@ -46,19 +46,20 @@ function cleanParams(input) {
   return out;
 }
 
-function publicSub(r) {
+function publicSub(r, runningSince = null) {
   const schedule = JSON.parse(r.schedule);
   return {
     id: r.id, reportId: r.report_id, reportName: r.report_name, name: r.name, format: r.format,
     params: JSON.parse(r.params), schedule, scheduleText: describe(schedule), folder: r.folder,
     enabled: !!r.enabled, nextRunAt: r.next_run_at, lastRunAt: r.last_run_at, lastStatus: r.last_status, lastError: r.last_error,
-    failures: r.failures,
+    failures: r.failures, runningSince,
   };
 }
 
 const SELECT = `SELECT s.*, r.name AS report_name FROM subscriptions s JOIN reports r ON r.id = s.report_id`;
 
-function createSubscriptionService({ db, reports, outputDir, now = () => new Date(), onChange = () => {} }) {
+function createSubscriptionService({ db, reports, outputDir, now = () => new Date(), onChange = () => {}, runningSince = () => null }) {
+  const pub = (r) => publicSub(r, runningSince(r.id));
   const userRoot = (userId) => resolveUnder(outputDir, String(parseInt(userId, 10)));
 
   // Reports in the admin-only Connection folder do not exist for viewers.
@@ -101,7 +102,7 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
     cleanFolder, userRoot,
 
     async list(userId) {
-      return (await db.query(`${SELECT} WHERE s.user_id = @userId ORDER BY s.name`, { userId })).map(publicSub);
+      return (await db.query(`${SELECT} WHERE s.user_id = @userId ORDER BY s.name`, { userId })).map(pub);
     },
 
     async create(user, body) {
@@ -113,7 +114,7 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
           schedule: JSON.stringify(v.schedule), folder: v.folder, next: nextRun(v.schedule, now()) }
       );
       onChange();
-      return publicSub(await mine(row.insertId, user.id));
+      return pub(await mine(row.insertId, user.id));
     },
 
     async update(user, id, body) {
@@ -129,7 +130,7 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
           folder: v.folder, enabled, next: enabled ? nextRun(v.schedule, now()) : null }
       );
       onChange();
-      return publicSub(await mine(id, user.id));
+      return pub(await mine(id, user.id));
     },
 
     async remove(user, id) {
@@ -144,7 +145,7 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
       const cur = await mine(id, user.id);
       await db.query('UPDATE subscriptions SET next_run_at = @now, enabled = 1 WHERE id = @id AND user_id = @userId', { id, userId: user.id, now: now() });
       onChange();
-      return publicSub({ ...cur, enabled: 1, next_run_at: now() });
+      return pub({ ...cur, enabled: 1, next_run_at: now() });
     },
 
     async runs(user, id, limit = 50) {

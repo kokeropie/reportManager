@@ -38,6 +38,7 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepF
   let busy = false;
   let timer = null;
   let lastCleanup = 0;
+  const running = new Map(); // subscription id -> start time of the run in progress (this process only)
 
   async function record(sub, started, fields) {
     await db.query(
@@ -71,6 +72,11 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepF
 
   async function execute(sub) {
     const started = now();
+    running.set(sub.id, started);
+    try { await executeInner(sub, started); } finally { running.delete(sub.id); }
+  }
+
+  async function executeInner(sub, started) {
     const event = { userId: sub.user_id, username: sub.username, action: 'scheduled-run', reportId: sub.report_id, reportName: sub.report_name, params: JSON.parse(sub.params) };
     try {
       if (sub.user_disabled) throw Object.assign(new Error('The owner account is disabled'), { fatal: true });
@@ -159,6 +165,7 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepF
 
   return {
     tick, cleanup, prune, nextDelay,
+    runningSince: (id) => running.get(id) || null,
     start() {
       if (!stopped) return;
       stopped = false;

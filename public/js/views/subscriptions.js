@@ -4,6 +4,10 @@ const view = document.getElementById('view');
 const say = (box, text, ok) => { box.textContent = text; box.className = 'msg ' + (ok ? 'ok' : 'error'); };
 const when = (v) => (v ? new Date(v).toLocaleString() : '-');
 const size = (n) => (n === null || n === undefined ? '' : n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+const elapsed = (since) => {
+  const sec = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000));
+  return Math.floor(sec / 60) + 'm ' + String(sec % 60).padStart(2, '0') + 's';
+};
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // The schedule fields, shared by the "Subscribe" panel in the report viewer. read() returns { schedule, folder, format, name }.
@@ -128,6 +132,21 @@ export async function renderSubscriptions() {
           h('td', {}, r.fileName ? h('a', { href: `/api/subscriptions/files/${r.id}/download` }, 'Download') : ''))))) : h('p', { class: 'muted' }, 'Nothing has run yet.')));
   }
 
+  const runningBadge = (since) => {
+    const b = h('div', {}, h('span', { class: 'badge running' }, 'Running ' + elapsed(since)));
+    b.firstChild.dataset.since = since;
+    return b;
+  };
+  if (list.some((s) => s.runningSince)) {
+    // Tick the clock every second; refetch every 5s so the badge clears when the run ends.
+    let n = 0;
+    const t = setInterval(() => {
+      if (!document.body.contains(box)) return clearInterval(t);
+      document.querySelectorAll('.badge.running').forEach((el) => { el.textContent = 'Running ' + elapsed(el.dataset.since); });
+      if (++n % 5 === 0) { clearInterval(t); reload(); }
+    }, 1000);
+  }
+
   view.append(
     h('div', { class: 'card' }, h('h2', {}, 'My subscriptions'),
       h('p', { class: 'muted' }, 'Open a report and press Subscribe to schedule it. Results are saved to your own files and are visible only to you.'),
@@ -136,11 +155,11 @@ export async function renderSubscriptions() {
           h('td', {}, s.name, s.folder ? h('div', { class: 'muted' }, 'Folder: ' + s.folder) : ''),
           h('td', {}, h('a', { href: '#/report/' + s.reportId }, s.reportName)),
           h('td', {}, s.scheduleText, h('div', { class: 'muted' }, s.format.toUpperCase())),
-          h('td', {}, s.enabled ? when(s.nextRunAt) : h('span', { class: 'badge warn' }, 'Paused')),
+          h('td', {}, s.runningSince ? runningBadge(s.runningSince) : '', s.enabled ? when(s.nextRunAt) : h('span', { class: 'badge warn' }, 'Paused')),
           h('td', {}, s.lastStatus ? (s.lastStatus === 'ok' ? 'OK ' : 'Failed ') + when(s.lastRunAt) : '-',
             s.lastError ? h('div', { class: 'muted' }, s.lastError) : ''),
           h('td', { class: 'actions' },
-            h('button', { onclick: act(() => api('POST', `/subscriptions/${s.id}/run`)) }, 'Run now'), ' ',
+            h('button', { onclick: act(async () => { await api('POST', `/subscriptions/${s.id}/run`); await new Promise((r) => setTimeout(r, 1800)); /* let the scheduler claim it so the badge shows */ }) }, 'Run now'), ' ',
             h('button', { onclick: act(() => api('PUT', `/subscriptions/${s.id}`, { enabled: !s.enabled })) }, s.enabled ? 'Pause' : 'Resume'), ' ',
             h('button', { onclick: () => edit(s) }, 'Edit'), ' ',
             h('button', { onclick: () => showHistory(s) }, 'History'), ' ',
