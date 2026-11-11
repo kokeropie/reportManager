@@ -108,6 +108,37 @@ Day to day: `sudo systemctl status|restart|stop report-server`, logs with `journ
 
 Not yet run on a real Ubuntu server, same as the Windows scripts. Paths in subscriptions (`OUTPUT_DIR`) are case-sensitive on Linux.
 
+## Moving from the old Windows server (SQL Server) to Ubuntu (MariaDB)
+
+`scripts/migrate-from-mssql.js` copies users' passwords, folders, folder access and subscriptions from the old SQL Server app database into the new MariaDB one. Ids differ between the two databases, so it matches by name: users by username, folders by name, reports by folder + report name. It only adds or updates, never deletes, only reads the old database, and a second run changes nothing.
+
+1. On Ubuntu, finish the normal setup first: connections created and every `.rdl` uploaded into the same folders as on Windows. A subscription whose report is not uploaded is skipped.
+2. Make sure Ubuntu can reach the old SQL Server (`192.168.7.222\ins`): UDP 1434 for the instance name lookup plus the instance's TCP port.
+3. In the app folder on Ubuntu, do a dry run. It asks for the SQL login and password (not shown, not stored) and writes nothing:
+   ```bash
+   cd /opt/report-server
+   sudo OLD_DB_NAME=testPTES node scripts/migrate-from-mssql.js
+   ```
+   `sudo` is needed because `.env` is readable only by root and the service user. `testPTES` is the name of the old app database (`APP_DB_NAME` in the Windows `.env`); without it the script looks for `reportserver` and SQL Server answers "Login failed" even with the right password. Type the login and password without the quotes that the Windows `.env` has around them.
+4. Read the output: every change is listed, with a count per table at the end. Fix anything marked `SKIPPED` (usually a report that is not uploaded yet) and run it again.
+5. Write the changes:
+   ```bash
+   sudo OLD_DB_NAME=testPTES node scripts/migrate-from-mssql.js --apply
+   ```
+   No restart is needed; the running app picks up the new subscriptions by itself.
+6. On the Windows server, pause the subscriptions or stop the service. Otherwise both servers run every schedule.
+
+What it does:
+
+- **Users.** Same username: the password from Windows replaces the one on Ubuntu (role and disabled state on Ubuntu are kept). Missing user: created as it was on Windows.
+- **Folders.** Missing folders are created; which viewers may open a restricted folder is copied.
+- **Subscriptions.** Copied with their parameters, schedule, format and output folder. The next run time is computed again from the schedule; a paused one stays paused. If the report sits in another folder on Ubuntu it is still matched when its name is unique.
+- **Not copied.** Subscription run history, the saved output files (they live under `OUTPUT_DIR/<user id>/` and the ids differ), the audit log, connections and reports.
+
+Optional settings, given in front of the command: `OLD_DB_SERVER` (another host or instance), `OLD_DB_PORT` (the instance's TCP port, when UDP 1434 is blocked), `OLD_DB_NAME` (default `reportserver`; the old server's database is `testPTES`), `OLD_DB_TRUST_CERT` (default `true`). With `sudo`, write them after it: `sudo OLD_DB_NAME=testPTES OLD_DB_PORT=1433 node scripts/migrate-from-mssql.js`.
+
+Run once for real on 2026-11-11 (15 passwords, 25 subscriptions, nothing skipped). Still, always do the dry run first.
+
 ## Known notes
 
 - `npm audit` reports 0 findings at the time of writing; `package.json` has `overrides` for `uuid` and `@azure/msal-node` to get there. Re-run it after any dependency change.
