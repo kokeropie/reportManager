@@ -83,7 +83,7 @@ function createAuthRouter({ users, store, db, audit }) {
   return r;
 }
 
-function createUsersRouter({ users, store, outputDir }) {
+function createUsersRouter({ users, store, outputDir, audit }) {
   const r = express.Router();
   r.use(requireAdmin);
 
@@ -106,6 +106,31 @@ function createUsersRouter({ users, store, outputDir }) {
       }
       await users.update(id, { role, disabled });
       if (disabled === true || role !== undefined) await store.destroyForUser(id, id === req.session.userId ? req.sessionID : null);
+      res.json(await users.get(id));
+    } catch (e) { next(e); }
+  });
+
+  // Rename only: password, role, subscriptions, saved files (kept under the user id) and folder access are untouched.
+  r.put('/:id/username', async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const target = await users.get(id);
+      if (!target) return res.status(404).json({ error: 'Not found' });
+      const username = String((req.body || {}).username || '').trim();
+      if (username === target.username) return res.json(target);
+      await users.rename(id, username);
+      if (id === req.session.userId) {
+        req.session.username = username;
+        await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())));
+      }
+      // Other sessions of that user still carry the old name, so they sign in again with the new one.
+      await store.destroyForUser(id, id === req.session.userId ? req.sessionID : null);
+      if (audit) {
+        await audit.log({
+          userId: req.session.userId, username: req.session.username, action: 'user-rename',
+          params: { userId: id, from: target.username, to: username }, ip: req.ip, userAgent: req.get('user-agent'),
+        });
+      }
       res.json(await users.get(id));
     } catch (e) { next(e); }
   });

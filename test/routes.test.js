@@ -19,12 +19,17 @@ const USERS = {
 const SECRET_ROW = { id: 1, name: 'PTES', type: 'mssql', host: 'h', port: 1433, database_name: 'd', username: 'u', password_enc: 'v1:SECRET', trust_server_cert: 0 };
 
 const removed = [];
+const renamed = [];
 
 async function start() {
   const users = {
     authenticate: async (u, p) => (USERS[u] && USERS[u].password === p ? USERS[u] : null),
     list: async () => [], countActiveAdmins: async () => 2,
-    get: async (id) => (id === 2 ? { id: 2, role: 'viewer', disabled: 0 } : id === 1 ? { id: 1, role: 'admin', disabled: 0 } : null),
+    get: async (id) => (id === 2 ? { id: 2, username: 'viewer', role: 'viewer', disabled: 0 } : id === 1 ? { id: 1, username: 'admin', role: 'admin', disabled: 0 } : null),
+    rename: async (id, username) => {
+      if (username === 'admin') throw Object.assign(new Error('Username already exists'), { status: 409 });
+      renamed.push([id, username]);
+    },
     remove: async (id) => { removed.push(id); },
   };
   const store = { destroyForUser: async () => {} };
@@ -45,7 +50,8 @@ async function start() {
   const api = express.Router();
   api.use('/auth', createAuthRouter({ users, store, db }));
   api.use(requireAuth, csrfProtect);
-  api.use('/users', createUsersRouter({ users, store }));
+  const userLog = [];
+  api.use('/users', createUsersRouter({ users, store, audit: { log: async (e) => { userLog.push(e); } } }));
   api.use('/connections', createConnectionsRouter({ connections }));
   api.use('/folders', createFoldersRouter({ db, reports: {} }));
   const logged = [];
@@ -57,8 +63,9 @@ async function start() {
   api.use('/reports', createReportsRouter({ reports: { getRow: async () => ({ name: 'PJTI' }), canAccess: async (id) => id !== 99 }, runs, cfg: { pageSize: 100 }, audit }));
   api.use('/audit', createAuditRouter({ audit }));
   app.use('/api', api);
+  app.use((err, req, res, next) => { res.status(err.status || 500).json({ error: err.message }); }); // same shape as src/app.js
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
-  return { logged, server, base: `http://127.0.0.1:${server.address().port}/api` };
+  return { logged, userLog, server, base: `http://127.0.0.1:${server.address().port}/api` };
 }
 
 function client(base) {
@@ -87,7 +94,7 @@ function client(base) {
 }
 
 test('auth, CSRF and role rules', async (t) => {
-  const { server, base, logged } = await start();
+  const { server, base, logged, userLog } = await start();
   t.after(() => server.close());
 
   await t.test('routes need a session', async () => {
@@ -129,6 +136,27 @@ test('auth, CSRF and role rules', async (t) => {
     assert.strictEqual((await c('POST', '/folders', { name: 'X' })).status, 404);
     assert.strictEqual((await c('DELETE', '/folders/1')).status, 404);
     assert.strictEqual((await c('GET', '/audit')).status, 404, 'audit log is admin-only');
+  });
+
+  await t.test('admin can rename a user and the change is logged; viewers cannot', async () => {
+    const v = client(base);
+    await v.login('viewer', 'viewer-pass-1');
+    assert.strictEqual((await v('PUT', '/users/2/username', { username: 'me2' })).status, 404);
+    const a = client(base);
+    await a.login('admin', 'admin-pass-1');
+    assert.strictEqual((await a('PUT', '/users/77/username', { username: 'x.y.z' })).status, 404);
+    assert.strictEqual((await a('PUT', '/users/2/username', { username: 'admin' })).status, 409, 'name taken');
+    assert.strictEqual((await a('PUT', '/users/2/username', { username: 'viewer' })).status, 200, 'same name is a no-op');
+    assert.deepStrictEqual(renamed, []);
+    assert.strictEqual((await a('PUT', '/users/2/username', { username: ' budi.s ' })).status, 200);
+    assert.deepStrictEqual(renamed, [[2, 'budi.s']]);
+    assert.strictEqual(userLog.length, 1);
+    assert.strictEqual(userLog[0].action, 'user-rename');
+    assert.strictEqual(userLog[0].username, 'admin');
+    assert.deepStrictEqual(userLog[0].params, { userId: 2, from: 'viewer', to: 'budi.s' });
+    // Renaming yourself keeps you signed in under the new name.
+    assert.strictEqual((await a('PUT', '/users/1/username', { username: 'boss' })).status, 200);
+    assert.strictEqual((await a('GET', '/auth/me')).body.username, 'boss');
   });
 
   await t.test('admin can delete a user, but not themselves; viewers cannot delete', async () => {

@@ -57,6 +57,20 @@ function createUserService(db) {
         { id, role: role === undefined ? null : role, disabled: disabled === undefined ? null : !!disabled }
       );
     },
+    // Only the name changes. Password, role, subscriptions, saved files and folder access all hang off the id.
+    async rename(id, username) {
+      const err = checkUsername(username);
+      if (err) throw Object.assign(new Error(err), { status: 400 });
+      const taken = () => Object.assign(new Error('Username already exists'), { status: 409 });
+      const other = await db.one('SELECT id FROM users WHERE username = @username AND id <> @id', { username, id });
+      if (other) throw taken();
+      try {
+        await db.query('UPDATE users SET username = @username WHERE id = @id', { id, username });
+      } catch (e) {
+        if (e && e.code === 'ER_DUP_ENTRY') throw taken(); // someone took the name between the check and the update
+        throw e;
+      }
+    },
     async setPassword(id, password, { mustChange = false } = {}) {
       const err = checkPassword(password);
       if (err) throw Object.assign(new Error(err), { status: 400 });

@@ -11,7 +11,7 @@ export async function renderAudit() {
     el.addEventListener('input', () => { state[key] = el.value; });
     return h('label', {}, label, el);
   };
-  const action = h('select', {}, [['', 'All'], ['run', 'Run'], ['export-csv', 'Export CSV'], ['export-xlsx', 'Export Excel'], ['login', 'Login'], ['logout', 'Logout']]
+  const action = h('select', {}, [['', 'All'], ['run', 'Run'], ['export-csv', 'Export CSV'], ['export-xlsx', 'Export Excel'], ['login', 'Login'], ['logout', 'Logout'], ['user-rename', 'User rename']]
     .map(([v, t]) => h('option', { value: v }, t)));
   action.addEventListener('change', () => { state.action = action.value; });
 
