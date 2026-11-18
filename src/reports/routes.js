@@ -148,6 +148,7 @@ function createReportsRouter({ reports, runs, cfg, audit }) {
         const abs = resolveUnder(target.root, target.folder, base);
         if (!abs) return res.status(400).json({ error: 'The folder is not allowed' });
         const size = await writeFile(abs, format, data);
+        if (cfg && cfg.onFileSaved) cfg.onFileSaved();
         return res.json({ saved: true, folder: target.folder, fileName: base, location: abs, size, rowCount: data.grid.rowCount });
       }
       res.set({

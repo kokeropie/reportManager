@@ -39,6 +39,14 @@ function load(env = process.env) {
     outputRetentionDays: parseInt(env.OUTPUT_RETENTION_DAYS || '30', 10),
     subscriptionKeepFiles: parseInt(env.SUBSCRIPTION_KEEP_FILES || '7', 10),
     schedulerEnabled: bool(env.SCHEDULER_ENABLED, true),
+    sharepoint: {
+      tenantId: env.GRAPH_TENANT_ID || '',
+      clientId: env.GRAPH_CLIENT_ID || '',
+      clientSecret: env.GRAPH_CLIENT_SECRET || '',
+      driveId: env.SHAREPOINT_DRIVE_ID || '',
+      dest: env.SHAREPOINT_DEST || 'Report Output',
+      intervalMinutes: parseInt(env.SHAREPOINT_SYNC_MINUTES || '5', 10),
+    },
     queryTimeoutSeconds: parseInt(env.QUERY_TIMEOUT_SECONDS || '0', 10),
     maxRows: parseInt(env.MAX_ROWS || '100000', 10),
     exportMaxRows: parseInt(env.EXPORT_MAX_ROWS || '500000', 10),
@@ -48,6 +56,8 @@ function load(env = process.env) {
     adminUsername: env.ADMIN_USERNAME || 'admin',
     adminPassword: env.ADMIN_PASSWORD || '',
   };
+  const sp = cfg.sharepoint;
+  sp.enabled = !!(sp.tenantId && sp.clientId && sp.clientSecret && sp.driveId);
   return cfg;
 }
 
@@ -58,6 +68,10 @@ function validate(cfg) {
   if (!cfg.appDb.user) errors.push('APP_DB_USER is required');
   if (!cfg.appDb.password) errors.push('APP_DB_PASSWORD is required');
   if (!(cfg.sessionHours > 0)) errors.push('SESSION_HOURS must be a positive number');
+  const sp = cfg.sharepoint;
+  if (sp && !sp.enabled && (sp.tenantId || sp.clientId || sp.clientSecret || sp.driveId)) {
+    errors.push('SharePoint push needs all of GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET and SHAREPOINT_DRIVE_ID (or none of them)');
+  }
   return errors;
 }
 

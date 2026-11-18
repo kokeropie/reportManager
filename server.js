@@ -72,7 +72,7 @@ async function main() {
     console.error('Fix .env, or run   node server.js --setup   to open the setup page and enter the details in a browser.');
     process.exit(1);
   }
-  const { app, users, pools, scheduler, dbsyncScheduler } = createApp({ db, config });
+  const { app, users, pools, scheduler, dbsyncScheduler, sharepoint } = createApp({ db, config });
 
   // First start: create the initial admin (from the setup page, or from .env).
   if ((await users.count()) === 0) {
@@ -92,7 +92,8 @@ async function main() {
   server.requestTimeout = 0;
   server.keepAliveTimeout = 65000;
   if (config.schedulerEnabled) { scheduler.start(); dbsyncScheduler.start(); console.log('Scheduler started'); }
-  const shutdown = () => { scheduler.stop(); dbsyncScheduler.stop(); server.close(() => Promise.all([pools.closeAll(), db.close()]).finally(() => process.exit(0))); };
+  if (sharepoint) { sharepoint.start(); console.log('SharePoint push started'); }
+  const shutdown = () => { scheduler.stop(); dbsyncScheduler.stop(); if (sharepoint) sharepoint.stop(); server.close(() => Promise.all([pools.closeAll(), db.close()]).finally(() => process.exit(0))); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }

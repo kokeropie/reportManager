@@ -48,6 +48,27 @@ More admins can be added from the **Users** page, or with `npm run create-admin 
 - **Saved files.** Results are written to `OUTPUT_DIR\<user id>\<folder>\<name timestamp>.xlsx` and listed under **My files**. Users only see their own. Files and history older than `OUTPUT_RETENTION_DAYS` (30) are deleted, and each subscription keeps only its newest `SUBSCRIPTION_KEEP_FILES` (7) files.
 - The scheduler lives inside the app, runs on the **server's clock and time zone**, sleeps until the next job is due, runs a job missed during downtime once, and pauses a subscription after 5 failures in a row (the reason shows in My subscriptions).
 
+## Auto-push saved files to SharePoint (Ubuntu)
+
+Every file saved under `OUTPUT_DIR` (scheduled reports and "save to a server folder") is uploaded to SharePoint by the app itself.
+Result: `Documents/<SHAREPOINT_DEST>/<username>/<folders the user made>/<file>`. Row limits and retention are not affected.
+
+1. Edit `/opt/report-server/.env` (keep it `chmod 600`) and fill in:
+
+   ```
+   GRAPH_TENANT_ID=<Tenant ID>
+   GRAPH_CLIENT_ID=<Client ID of REG_MIS_OND>
+   GRAPH_CLIENT_SECRET=<the secret VALUE, not the secret ID>
+   SHAREPOINT_DRIVE_ID=<Drive ID of the Documents library>
+   SHAREPOINT_DEST=Report Output
+   ```
+
+   The values are the same as in `~/graph/graph.env`. Quotes are not needed. If the secret contains `#`, put it in double quotes.
+2. `sudo systemctl restart report-server`. The log (`journalctl -u report-server -f`) shows `SharePoint push started`, then `SharePoint: uploaded N file(s)`.
+3. The first pass also uploads files that already exist in `OUTPUT_DIR`. After that, a file is pushed within seconds of being saved, and a sweep every `SHAREPOINT_SYNC_MINUTES` (default 5) retries anything that failed.
+
+Notes: the `<username>` folder is fixed on a user's first upload, so renaming the user later does not move their files. New users are included automatically. Nothing is ever deleted from SharePoint (the server still removes old files after `OUTPUT_RETENTION_DAYS`). If you use this, remove the `upload_reports.py` cron job so the two do not both run. Leave the four settings empty to turn it off.
+
 ## Exports and audit log
 
 - On a report page, **Export CSV** and **Export Excel** run the query again with the same parameters and download the file. CSV is UTF-8 with a BOM, so Excel opens it correctly. XLSX has a bold frozen header row, column widths from the RDL, and real numbers and dates.

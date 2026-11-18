@@ -19,6 +19,8 @@ const { createAuditRouter } = require('./audit/routes');
 const { createSubscriptionService } = require('./subscriptions/service');
 const { createSubscriptionsRouter } = require('./subscriptions/routes');
 const { createScheduler } = require('./subscriptions/scheduler');
+const { createSharePointSync } = require('./sharepoint/sync');
+const { createGraphClient } = require('./sharepoint/graph');
 const { createTimingLog } = require('./dbsync/timingLog');
 const { createDbSyncService } = require('./dbsync/service');
 const { createRunner, createDbSyncScheduler } = require('./dbsync/runner');
@@ -74,7 +76,18 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
     limiter: new Limiter(config.maxConcurrentRuns), runStore: new RunStore(), cfg: config,
   });
 
-  const scheduler = createScheduler({ db, runs, audit, outputDir: config.outputDir, retentionDays: config.outputRetentionDays, keepFiles: config.subscriptionKeepFiles });
+  // Optional auto-push of saved files to SharePoint (needs the GRAPH_* and SHAREPOINT_* settings in .env).
+  const sp = config.sharepoint;
+  const sharepoint = sp && sp.enabled
+    ? createSharePointSync({
+      db, outputDir: config.outputDir, dest: sp.dest, intervalMinutes: sp.intervalMinutes,
+      graph: createGraphClient({ tenantId: sp.tenantId, clientId: sp.clientId, clientSecret: sp.clientSecret, driveId: sp.driveId }),
+    })
+    : null;
+  const onFileSaved = () => { if (sharepoint) sharepoint.kick(); };
+  config.onFileSaved = onFileSaved;
+
+  const scheduler = createScheduler({ db, runs, audit, outputDir: config.outputDir, retentionDays: config.outputRetentionDays, keepFiles: config.subscriptionKeepFiles, onFileSaved });
   const subs = createSubscriptionService({ db, reports, outputDir: config.outputDir, onChange: () => scheduler.wake(), runningSince: scheduler.runningSince });
 
   const dbsync = createDbSyncService({ db, encryptionKey: config.encryptionKey });
@@ -130,7 +143,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
     res.status(status).json(body);
   });
 
-  return { app, users, store, pools, scheduler, dbsyncScheduler };
+  return { app, users, store, pools, scheduler, dbsyncScheduler, sharepoint };
 }
 
 module.exports = { createApp };

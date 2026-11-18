@@ -180,6 +180,23 @@ const MIGRATIONS = [
   [
     `ALTER TABLE dbsync_runs MODIFY COLUMN summary VARCHAR(1500) NULL`,
   ],
+  // SharePoint push: the fixed SharePoint folder name per user (set on the first upload, never changed by a rename),
+  // and which saved files were already uploaded.
+  [
+    `CREATE TABLE IF NOT EXISTS sharepoint_user_folders (
+      user_id     INT NOT NULL PRIMARY KEY,
+      folder_name VARCHAR(120) NOT NULL UNIQUE,
+      created_at  DATETIME(3) NOT NULL DEFAULT ${NOW}
+    )`,
+    `CREATE TABLE IF NOT EXISTS sharepoint_uploads (
+      user_id     INT NOT NULL,
+      rel_path    VARCHAR(500) NOT NULL,
+      size        BIGINT NOT NULL,
+      mtime_ms    BIGINT NOT NULL,
+      uploaded_at DATETIME(3) NOT NULL,
+      PRIMARY KEY (user_id, rel_path)
+    )`,
+  ],
 ];
 
 const DEFAULT_FOLDERS = [

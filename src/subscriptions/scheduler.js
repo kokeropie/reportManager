@@ -34,7 +34,7 @@ async function writeFile(abs, format, data) {
   return fs.statSync(abs).size;
 }
 
-function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepFiles = 7, now = () => new Date(), log = console }) {
+function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepFiles = 7, now = () => new Date(), log = console, onFileSaved = () => {} }) {
   let busy = false;
   let timer = null;
   let lastCleanup = 0;
@@ -88,6 +88,7 @@ function createScheduler({ db, runs, audit, outputDir, retentionDays = 30, keepF
       if (!abs) throw new Error('The folder is not allowed');
       const size = await writeFile(abs, sub.format, data);
       await record(sub, started, { status: 'ok', rows: data.grid.rowCount, file: rel, size });
+      try { onFileSaved(); } catch (e) { /* the push must never fail a run */ }
       await prune(sub).catch((e) => log.error(`Subscription ${sub.id} file cleanup failed: ${e.message}`));
       await audit.log({ ...event, rowCount: data.grid.rowCount });
     } catch (e) {
