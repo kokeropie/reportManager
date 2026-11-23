@@ -108,7 +108,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   api.use('/folders', createFoldersRouter({ db, reports }));
   api.use('/reports', createReportsRouter({ reports, runs, cfg: config, audit }));
 
-  api.use('/server-folders', createServerFoldersRouter({ outputDir: config.outputDir }));
+  api.use('/server-folders', createServerFoldersRouter({ outputDir: config.outputDir, subs }));
   api.use('/subscriptions', createSubscriptionsRouter({ subs, audit }));
   api.use('/audit', createAuditRouter({ audit }));
   api.use('/db-sync', createDbSyncRouter({ service: dbsync, runner: dbsyncRunner, audit }));

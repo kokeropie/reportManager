@@ -197,6 +197,10 @@ const MIGRATIONS = [
       PRIMARY KEY (user_id, rel_path)
     )`,
   ],
+  // A subscription whose save folder was deleted is held until the user picks another folder.
+  [
+    `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS folder_missing TINYINT(1) NOT NULL DEFAULT 0`,
+  ],
 ];
 
 const DEFAULT_FOLDERS = [

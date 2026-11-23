@@ -61,3 +61,48 @@ test('export with saveTo writes the file under the user area', async () => {
     assert.strictEqual((await call(s, 'POST', '/reports/1/export?format=csv', { params: {}, saveTo: '../6' })).status, 400);
   } finally { s.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('server folders: delete only when no files, never the root or outside', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rm-'));
+  const s = await start(dir);
+  try {
+    await call(s, 'POST', '/folders', { path: '', name: 'Old' });
+    await call(s, 'POST', '/folders', { path: 'Old', name: 'Sub' });
+    fs.writeFileSync(path.join(dir, '5', 'Old', 'Sub', 'a.csv'), 'x');
+    assert.strictEqual((await call(s, 'DELETE', '/folders?path=Old')).status, 409);
+    assert.ok(fs.existsSync(path.join(dir, '5', 'Old', 'Sub', 'a.csv')));
+    fs.unlinkSync(path.join(dir, '5', 'Old', 'Sub', 'a.csv'));
+    const ok = await call(s, 'DELETE', '/folders?path=Old');
+    assert.strictEqual(ok.status, 200);
+    assert.ok(!fs.existsSync(path.join(dir, '5', 'Old')));
+    assert.strictEqual((await call(s, 'DELETE', '/folders?path=Old')).status, 404);
+    assert.strictEqual((await call(s, 'DELETE', '/folders')).status, 400);
+    assert.strictEqual((await call(s, 'DELETE', '/folders?path=' + encodeURIComponent('../6'))).status, 400);
+  } finally { s.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('server folders: delete asks first when a subscription uses it, then holds it', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rm-'));
+  const held = [];
+  const subs = {
+    usingFolder: async (u, rel) => (rel === 'Old' ? [{ id: 1, name: 'Daily' }] : []),
+    holdForDeletedFolder: async (u, rel) => { held.push(rel); return [{ id: 1, name: 'Daily' }]; },
+  };
+  const app = express();
+  app.use((req, res, next) => { req.session = { userId: 5, role: 'viewer' }; next(); });
+  app.use('/folders', createServerFoldersRouter({ outputDir: dir, subs }));
+  app.use((err, req, res, next) => res.status(err.status || 500).json({ error: err.message }));
+  const s = await new Promise((ok) => { const x = app.listen(0, () => ok(x)); });
+  try {
+    fs.mkdirSync(path.join(dir, '5', 'Old'), { recursive: true });
+    const first = await call(s, 'DELETE', '/folders?path=Old');
+    assert.strictEqual(first.status, 409);
+    assert.deepStrictEqual(first.body.subscriptions, ['Daily']);
+    assert.ok(fs.existsSync(path.join(dir, '5', 'Old')));
+    const second = await call(s, 'DELETE', '/folders?path=Old&confirm=1');
+    assert.strictEqual(second.status, 200);
+    assert.deepStrictEqual(second.body.held, ['Daily']);
+    assert.deepStrictEqual(held, ['Old']);
+    assert.ok(!fs.existsSync(path.join(dir, '5', 'Old')));
+  } finally { s.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -52,7 +52,7 @@ function publicSub(r, runningSince = null) {
     id: r.id, reportId: r.report_id, reportName: r.report_name, name: r.name, format: r.format,
     params: JSON.parse(r.params), schedule, scheduleText: describe(schedule), folder: r.folder,
     enabled: !!r.enabled, nextRunAt: r.next_run_at, lastRunAt: r.last_run_at, lastStatus: r.last_status, lastError: r.last_error,
-    failures: r.failures, runningSince,
+    failures: r.failures, folderMissing: !!r.folder_missing, runningSince,
   };
 }
 
@@ -121,11 +121,15 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
       const cur = await mine(id, user.id);
       const b = body || {};
       const v = await build(user, { ...b, reportId: cur.report_id }, cur);
-      const enabled = b.enabled === undefined ? !!cur.enabled : !!b.enabled;
+      // Held because its folder was deleted: only a newly chosen folder releases it.
+      if (cur.folder_missing && (b.folder === undefined || v.folder.toLowerCase() === String(cur.folder).toLowerCase())) {
+        throw bad(`The folder "${cur.folder}" was deleted. Choose a different folder to run this subscription again`);
+      }
+      const enabled = b.enabled === undefined ? (cur.folder_missing ? true : !!cur.enabled) : !!b.enabled;
       // Re-enabling (or changing the schedule) restarts the failure count and recomputes the next run.
       await db.query(
         `UPDATE subscriptions SET name=@name, params=@params, format=@format, schedule=@schedule, folder=@folder,
-           enabled=@enabled, next_run_at=@next, failures=CASE WHEN @enabled = 1 THEN 0 ELSE failures END WHERE id=@id AND user_id=@userId`,
+           enabled=@enabled, folder_missing=0, next_run_at=@next, failures=CASE WHEN @enabled = 1 THEN 0 ELSE failures END WHERE id=@id AND user_id=@userId`,
         { id, userId: user.id, name: v.name, params: JSON.stringify(v.params), format: v.format, schedule: JSON.stringify(v.schedule),
           folder: v.folder, enabled, next: enabled ? nextRun(v.schedule, now()) : null }
       );
@@ -143,6 +147,7 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
     // "Run now": due on the next scheduler tick, without touching the regular schedule afterwards.
     async runNow(user, id) {
       const cur = await mine(id, user.id);
+      if (cur.folder_missing) throw bad(`The folder "${cur.folder}" was deleted. Choose a different folder first`);
       await db.query('UPDATE subscriptions SET next_run_at = @now, enabled = 1 WHERE id = @id AND user_id = @userId', { id, userId: user.id, now: now() });
       onChange();
       return pub({ ...cur, enabled: 1, next_run_at: now() });
@@ -170,6 +175,21 @@ function createSubscriptionService({ db, reports, outputDir, now = () => new Dat
       if (!r) return null;
       const abs = resolveUnder(userRoot(user.id), r.file_name);
       return abs && fs.existsSync(abs) ? abs : null;
+    },
+
+    // The user's subscriptions that save into this folder or one below it.
+    async usingFolder(userId, rel) {
+      const f = String(rel).toLowerCase();
+      return (await db.query('SELECT id, name, folder FROM subscriptions WHERE user_id = @userId AND folder <> \'\'', { userId }))
+        .filter((s) => { const x = s.folder.toLowerCase(); return x === f || x.startsWith(f + '/'); });
+    },
+
+    // Folder deleted: put those subscriptions on hold until a folder is chosen.
+    async holdForDeletedFolder(userId, rel) {
+      const list = await this.usingFolder(userId, rel);
+      for (const s of list) await db.query('UPDATE subscriptions SET enabled = 0, folder_missing = 1, next_run_at = NULL WHERE id = @id AND user_id = @userId', { id: s.id, userId });
+      if (list.length) onChange();
+      return list;
     },
 
     deleteFiles(userId, names) {
