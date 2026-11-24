@@ -133,3 +133,13 @@ test('config: SharePoint is off unless all four settings are present; a half-fil
   assert.strictEqual(load(full).sharepoint.enabled, true);
   assert.match(validate(load({ ...base, GRAPH_CLIENT_SECRET: 's' }))[0], /SharePoint push needs all/);
 });
+
+test('tcprofile folder goes to <dest>/tcprofile/ and a replaced file is uploaded again', async () => {
+  const { calls, sync, put } = setup({});
+  put('tcprofile/tcProfile_new.xlsx', 'v1'); put('tcprofile/.tcProfile_new.xlsx.1.tmp', 'half');
+  assert.strictEqual((await sync.sweep()).uploaded, 1);
+  assert.deepStrictEqual(calls, ['Report Output/tcprofile/tcProfile_new.xlsx']);
+  assert.strictEqual((await sync.sweep()).uploaded, 0);
+  put('tcprofile/tcProfile_new.xlsx', 'version two');
+  assert.strictEqual((await sync.sweep()).uploaded, 1);
+});

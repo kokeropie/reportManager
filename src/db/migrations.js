@@ -201,6 +201,27 @@ const MIGRATIONS = [
   [
     `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS folder_missing TINYINT(1) NOT NULL DEFAULT 0`,
   ],
+  // tcProfile: scheduled download of the Alvis TC Profile Excel file (src/tcprofile). One settings row plus run history.
+  [
+    `CREATE TABLE IF NOT EXISTS tcprofile_config (
+      id          INT NOT NULL PRIMARY KEY,
+      enabled     TINYINT(1) NOT NULL DEFAULT 0,
+      schedule    VARCHAR(500) NOT NULL DEFAULT '{"type":"daily","time":"06:00"}',
+      next_run_at DATETIME(3) NULL,
+      updated_at  DATETIME(3) NOT NULL DEFAULT ${NOW},
+      CONSTRAINT ck_tcprofile_single CHECK (id = 1)
+    )`,
+    `INSERT IGNORE INTO tcprofile_config (id) VALUES (1)`,
+    `CREATE TABLE IF NOT EXISTS tcprofile_runs (
+      id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+      trigger_by  VARCHAR(10) NOT NULL,
+      started_at  DATETIME(3) NOT NULL,
+      finished_at DATETIME(3) NULL,
+      status      VARCHAR(10) NOT NULL,
+      summary     VARCHAR(500) NULL,
+      size_bytes  BIGINT NULL
+    )`,
+  ],
 ];
 
 const DEFAULT_FOLDERS = [

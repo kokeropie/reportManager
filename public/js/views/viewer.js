@@ -4,6 +4,18 @@ import { serverSavePanel } from './serverSave.js';
 
 const view = document.getElementById('view');
 
+// Shows how long a slow request has been going, on the button that started it ("Running... 1m 05s").
+function elapsed(btn, word) {
+  const t0 = Date.now();
+  const paint = () => {
+    const sec = Math.floor((Date.now() - t0) / 1000);
+    btn.textContent = `${word} ${sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + String(sec % 60).padStart(2, '0') + 's'}`;
+  };
+  paint();
+  const id = setInterval(paint, 1000);
+  return () => clearInterval(id);
+}
+
 function inputFor(p) {
   const common = { name: p.name, 'aria-label': p.prompt };
   const req = !(p.nullable || (p.type === 'String' && p.allowBlank));
@@ -161,7 +173,8 @@ export async function renderReport(me, id) {
 
   async function exportAs(format, btn, params = lastParams) {
     const label = btn.textContent;
-    btn.disabled = true; btn.textContent = 'Preparing...';
+    btn.disabled = true;
+    const stop = elapsed(btn, 'Preparing...');
     err.replaceChildren();
     const save = {
       name: rep.name.replace(/[\\/:*?"<>|]+/g, '_') + '.' + format, ext: format,
@@ -169,6 +182,7 @@ export async function renderReport(me, id) {
     };
     try { await download(`/reports/${id}/export?format=${format}`, { params, layout }, save); }
     catch (e) { showError(e); }
+    stop();
     btn.disabled = false; btn.textContent = label;
   }
 
@@ -180,10 +194,12 @@ export async function renderReport(me, id) {
 
   async function run(all = false) {
     const btn = form.querySelector('#run');
-    btn.disabled = true; btn.textContent = 'Running...';
+    btn.disabled = true;
+    const stop = elapsed(btn, 'Running...');
     err.replaceChildren(); out.replaceChildren();
     try { if (!(all === true && lastParams)) lastParams = collect(); draw(await api('POST', `/reports/${id}/run`, { params: lastParams, layout, loadAll: all === true })); }
     catch (e) { showError(e); }
+    stop();
     btn.disabled = false; btn.textContent = 'View report';
   }
 }

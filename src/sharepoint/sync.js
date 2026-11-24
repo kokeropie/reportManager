@@ -41,8 +41,9 @@ function createSharePointSync({ db, graph, outputDir, dest = 'Report Output', in
     }
   }
 
+  // userId 0 is the shared tcprofile folder (OUTPUT_DIR/tcprofile), uploaded to <dest>/tcprofile/ with a fixed name.
   async function syncUser(userId, stats) {
-    const root = path.join(outputDir, String(userId));
+    const root = path.join(outputDir, userId === 0 ? 'tcprofile' : String(userId));
     const known = new Map();
     for (const r of await db.query('SELECT rel_path, size, mtime_ms FROM sharepoint_uploads WHERE user_id = @id', { id: userId })) {
       known.set(r.rel_path, r);
@@ -55,7 +56,7 @@ function createSharePointSync({ db, graph, outputDir, dest = 'Report Output', in
       const prev = known.get(relPath);
       if (prev && Number(prev.size) === st.size && Number(prev.mtime_ms) === Math.floor(st.mtimeMs)) continue;
       try {
-        if (folder === null) folder = await userFolder(userId);
+        if (folder === null) folder = userId === 0 ? 'tcprofile' : await userFolder(userId);
         await graph.uploadFile([...destSegments, cleanSegment(folder), ...f.rel.map(cleanSegment)], f.abs);
         await db.query(
           `INSERT INTO sharepoint_uploads (user_id, rel_path, size, mtime_ms, uploaded_at) VALUES (@id, @rel, @size, @mtime, UTC_TIMESTAMP(3))
@@ -80,7 +81,7 @@ function createSharePointSync({ db, graph, outputDir, dest = 'Report Output', in
         again = false;
         let ids = [];
         try { ids = fs.readdirSync(outputDir, { withFileTypes: true }).filter((d) => d.isDirectory() && /^\d+$/.test(d.name)).map((d) => parseInt(d.name, 10)); } catch (e) { /* nothing saved yet */ }
-        for (const id of ids) await syncUser(id, stats);
+        for (const id of [0, ...ids]) await syncUser(id, stats);
       } while (again);
     } catch (e) {
       log.error(`SharePoint sync stopped: ${e.message}`);

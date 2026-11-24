@@ -25,6 +25,9 @@ const { createTimingLog } = require('./dbsync/timingLog');
 const { createDbSyncService } = require('./dbsync/service');
 const { createRunner, createDbSyncScheduler } = require('./dbsync/runner');
 const { createDbSyncRouter } = require('./dbsync/routes');
+const { createTcProfileService } = require('./tcprofile/service');
+const { createRunner: createTcRunner, createTcProfileScheduler } = require('./tcprofile/runner');
+const { createTcProfileRouter } = require('./tcprofile/routes');
 const { createPools, execute } = require('./runner/pools');
 const { Limiter } = require('./runner/limiter');
 const { RunStore } = require('./runner/runStore');
@@ -94,6 +97,11 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   const dbsyncRunner = createRunner({ db, service: dbsync, timingLog: createTimingLog({ dir: config.logDir }) });
   const dbsyncScheduler = createDbSyncScheduler({ db, runner: dbsyncRunner });
 
+  // tcProfile: scheduled Alvis Excel download into OUTPUT_DIR/tcprofile (pushed to SharePoint like other saved files).
+  const tcService = createTcProfileService({ db });
+  const tcRunner = createTcRunner({ db, outputDir: config.outputDir, alvis: config.alvis || { apiKey: '', baseUrl: 'https://smile.alvis.id/api/external/v1' }, onFileSaved });
+  const tcScheduler = createTcProfileScheduler({ db, runner: tcRunner });
+
   // Unauthenticated liveness check for the Windows service / monitoring. Reveals nothing but up/down.
   app.get('/healthz', async (req, res) => {
     try { await db.one('SELECT 1 AS ok'); res.json({ ok: true }); } catch (e) { res.status(503).json({ ok: false }); }
@@ -112,6 +120,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
   api.use('/subscriptions', createSubscriptionsRouter({ subs, audit }));
   api.use('/audit', createAuditRouter({ audit }));
   api.use('/db-sync', createDbSyncRouter({ service: dbsync, runner: dbsyncRunner, audit }));
+  api.use('/tcprofile', createTcProfileRouter({ service: tcService, runner: tcRunner, audit }));
 
   // FR-2a: admin switch for "single session per user".
   api.get('/settings', requireAdmin, async (req, res, next) => {
@@ -143,7 +152,7 @@ function createApp({ db, config, execute: executeOverride, pools: poolsOverride 
     res.status(status).json(body);
   });
 
-  return { app, users, store, pools, scheduler, dbsyncScheduler, sharepoint };
+  return { app, users, store, pools, scheduler, dbsyncScheduler, tcScheduler, sharepoint };
 }
 
 module.exports = { createApp };

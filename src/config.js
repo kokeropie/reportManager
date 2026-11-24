@@ -47,6 +47,10 @@ function load(env = process.env) {
       dest: env.SHAREPOINT_DEST || 'Report Output',
       intervalMinutes: parseInt(env.SHAREPOINT_SYNC_MINUTES || '5', 10),
     },
+    alvis: {
+      apiKey: env.ALVIS_API_KEY || '',
+      baseUrl: env.ALVIS_BASE_URL || 'https://smile.alvis.id/api/external/v1',
+    },
     queryTimeoutSeconds: parseInt(env.QUERY_TIMEOUT_SECONDS || '0', 10),
     maxRows: parseInt(env.MAX_ROWS || '100000', 10),
     exportMaxRows: parseInt(env.EXPORT_MAX_ROWS || '500000', 10),
